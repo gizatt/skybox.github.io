@@ -153,19 +153,42 @@ function init(): void {
     cam.lookAt(0, 0, 0);
     cam.updateMatrixWorld();
 
-    // Deterministic random color for each satellite (hash sat name)
-    function hashStringToColor(str: string): {r:number,g:number,b:number} {
-      let hash = 0;
-      for (let i = 0; i < str.length; i++) {
-        hash = str.charCodeAt(i) + ((hash << 5) - hash);
-      }
-      // Use hash to get r,g,b in [0,1]
-      const r = ((hash >> 0) & 0xFF) / 255;
-      const g = ((hash >> 8) & 0xFF) / 255;
-      const b = ((hash >> 16) & 0xFF) / 255;
-      return { r, g, b };
-    }
-    const color = hashStringToColor(f.sat);
+// DJB2 hash for uniform hue distribution
+function hashStringToColor(str: string): {r:number,g:number,b:number,hex:number} {
+  let hash = 5381;
+  for (let i = 0; i < str.length; i++) {
+    hash = ((hash << 5) + hash) + str.charCodeAt(i)*1234;
+  }
+  const hue = Math.abs(hash) % 360;
+  const {r, g, b} = hslToRgb(hue / 360., 0.5, 0.8);
+  const hex = ((Math.round(r * 255) << 16) | (Math.round(g * 255) << 8) | Math.round(b * 255));
+  console.log(`hashStringToColor("${str}") = rgb(${Math.round(r*255)},${Math.round(g*255)},${Math.round(b*255)}), hex: #${hex.toString(16).padStart(6, '0')}`);
+  return { r, g, b, hex };
+}
+
+// HSL to RGB, returns {r,g,b} in [0,1]
+function hslToRgb(h: number, s: number, l: number) {
+  let r: number, g: number, b: number;
+  if (s === 0) {
+    r = g = b = l; // achromatic
+  } else {
+    const hue2rgb = (p: number, q: number, t: number) => {
+      if (t < 0) t += 1;
+      if (t > 1) t -= 1;
+      if (t < 1/6) return p + (q - p) * 6 * t;
+      if (t < 1/2) return q;
+      if (t < 2/3) return p + (q - p) * (2/3 - t) * 6;
+      return p;
+    };
+    const q = l < 0.5 ? l * (1 + s) : l + s - l * s;
+    const p = 2 * l - q;
+    r = hue2rgb(p, q, h + 1/3);
+    g = hue2rgb(p, q, h);
+    b = hue2rgb(p, q, h - 1/3);
+  }
+  return { r, g, b };
+}
+  const color = hashStringToColor(f.sat);
 
     // Add a CameraHelper with custom color and alpha
     const helper = new THREE.CameraHelper(cam);
@@ -175,12 +198,13 @@ function init(): void {
         helper.material.forEach((mat: any) => {
           mat.opacity = frustumAlpha;
           mat.transparent = frustumAlpha < 1.0;
-          mat.color = new THREE.Color(color.r, color.g, color.b);
+          if (mat.color && typeof mat.color.set === 'function') mat.color.set(color.hex);
         });
       } else {
-        (helper.material as THREE.Material).opacity = frustumAlpha;
-        (helper.material as THREE.Material).transparent = frustumAlpha < 1.0;
-        (helper.material as THREE.Material).color = new THREE.Color(color.r, color.g, color.b);
+        const mat = helper.material as any;
+        mat.opacity = frustumAlpha;
+        mat.transparent = frustumAlpha < 1.0;
+        if (mat.color && typeof mat.color.set === 'function') mat.color.set(color.hex);
       }
     }
     scene.add(helper);
