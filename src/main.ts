@@ -35,7 +35,178 @@ document.addEventListener('DOMContentLoaded', () => {
   SCREEN_WIDTH = window.innerWidth;
   SCREEN_HEIGHT = window.innerHeight;
   aspect = SCREEN_WIDTH / SCREEN_HEIGHT;
-  init();
+
+  // Setup Three.js scene, camera, renderer, controls
+  container = document.getElementById('app') as HTMLDivElement;
+  scene = new THREE.Scene();
+  camera = new THREE.PerspectiveCamera(50, aspect, 1000, 1000000);
+  camera.position.set(0, -100000, 75000);
+  camera.lookAt(0, 0, 0);
+  camera.up.set(0, 0, 1);
+  renderer = new THREE.WebGLRenderer({ antialias: true });
+  renderer.setPixelRatio(window.devicePixelRatio);
+  renderer.setSize(SCREEN_WIDTH, SCREEN_HEIGHT);
+  renderer.setAnimationLoop(animate);
+  container.appendChild(renderer.domElement);
+  renderer.setScissorTest(true);
+  controls = new OrbitControls(camera, renderer.domElement);
+  controls.target.set(0, 0, 0);
+  controls.minDistance = 5000;
+  controls.maxDistance = 200000;
+  controls.enableDamping = true;
+  controls.dampingFactor = 0.05;
+
+  // Earth mesh and material
+  const uniforms: any = {
+    numProjectors: { value: 0 },
+    tex0: { value: new THREE.Texture() },
+    tex1: { value: new THREE.Texture() },
+    tex2: { value: new THREE.Texture() },
+    tex3: { value: new THREE.Texture() },
+    cameraMatrix: { value: [new THREE.Matrix4(), new THREE.Matrix4(), new THREE.Matrix4(), new THREE.Matrix4()] },
+    projectorCameraPosition: { value: [new THREE.Vector3(), new THREE.Vector3(), new THREE.Vector3(), new THREE.Vector3()] },
+    cameraProjection: { value: [new THREE.Matrix4(), new THREE.Matrix4(), new THREE.Matrix4(), new THREE.Matrix4()] },
+    sphereRadius: { value: 6371.0 },
+  };
+  const projectorMaterial = new THREE.ShaderMaterial({
+    uniforms,
+    vertexShader: projectorVertexShader,
+    fragmentShader: projectorFragmentShader,
+    side: THREE.FrontSide,
+    transparent: false,
+    wireframe: false,
+  });
+  earth_mesh = new THREE.Mesh(
+    new THREE.SphereGeometry(6371, 64, 64),
+    projectorMaterial
+  );
+  earth_mesh.position.set(0, 0, 0);
+  scene.add(earth_mesh);
+  (earth_mesh as any).projectorMaterial = projectorMaterial;
+
+  // Add distant stars
+  const geometry = new THREE.BufferGeometry();
+  const vertices: number[] = [];
+  const radius = 200000;
+  for (let i = 0; i < 10000; i++) {
+    const u = Math.random();
+    const v = Math.random();
+    const theta = 2 * Math.PI * u;
+    const phi = Math.acos(2 * v - 1);
+    const x = radius * Math.sin(phi) * Math.cos(theta);
+    const y = radius * Math.sin(phi) * Math.sin(theta);
+    const z = radius * Math.cos(phi);
+    vertices.push(x, y, z);
+  }
+  geometry.setAttribute('position', new THREE.Float32BufferAttribute(vertices, 3));
+  const particles = new THREE.Points(geometry, new THREE.PointsMaterial({ color: 0x888888 }));
+  scene.add(particles);
+
+  window.addEventListener('resize', onWindowResize);
+
+  loadSatellites();
+
+  // Helper to remove all satellite objects from scene
+function clearSatellitesFromScene() {
+  satellites.forEach(sat => {
+    if (sat.helper) scene.remove(sat.helper);
+    if (sat.camera) scene.remove(sat.camera);
+    // Remove marker if you want (not tracked in SatelliteProjector)
+  });
+  satelliteImageWidgets.forEach(w => w.destroy());
+  satelliteImageWidgets = [];
+  satellites = [];
+}
+
+// Main function to (re)load satellites
+async function loadSatellites() {
+  clearSatellitesFromScene();
+  const frames = await fetchLatestGoesFrames();
+  frames.forEach((f, i) => {
+    const satEcef_km = {
+      x: f.satEcef_m.x / 1000,
+      y: f.satEcef_m.y / 1000,
+      z: f.satEcef_m.z / 1000,
+    };
+    const cam = new THREE.PerspectiveCamera(f.fovDeg, f.aspect, 35000, 50000);
+    cam.up.set(0, 0, 1);
+    cam.position.set(satEcef_km.x, satEcef_km.y, satEcef_km.z);
+    cam.lookAt(0, 0, 0);
+    cam.updateMatrixWorld();
+    const color = hashStringToColor(f.sat);
+    const helper = new THREE.CameraHelper(cam);
+    if (helper.material) {
+      if (Array.isArray(helper.material)) {
+        helper.material.forEach((mat: any) => {
+          mat.opacity = frustumAlpha;
+          mat.transparent = frustumAlpha < 1.0;
+          if (mat.color && typeof mat.color.set === 'function') mat.color.set(color.hex);
+        });
+      } else {
+        const mat = helper.material as any;
+        mat.opacity = frustumAlpha;
+        mat.transparent = frustumAlpha < 1.0;
+        if (mat.color && typeof mat.color.set === 'function') mat.color.set(color.hex);
+      }
+    }
+    scene.add(helper);
+    const marker = new THREE.Mesh(
+      new THREE.SphereGeometry(100, 16, 16),
+      new THREE.MeshBasicMaterial({ color: 0xffaa00 })
+    );
+    marker.position.set(satEcef_km.x, satEcef_km.y, satEcef_km.z);
+    scene.add(marker);
+    const tex = new THREE.Texture(f.image);
+    tex.needsUpdate = true;
+    satellites.push({
+      sat: f.sat,
+      camera: cam,
+      helper,
+      texture: tex,
+      frame: f,
+    });
+    const widget = new InsetImageWidget(f.image.src, document.body, f.sat);
+    widget['container'].style.width = '128px';
+    widget['container'].style.right = '20px';
+    widget['container'].style.left = '';
+    widget['container'].style.top = (20 + i * 148) + 'px';
+    widget['container'].style.zIndex = (2000 + i).toString();
+    satelliteImageWidgets.push(widget);
+  });
+}
+
+function hashStringToColor(str: string): {r:number,g:number,b:number,hex:number} {
+  let hash = 5381;
+  for (let i = 0; i < str.length; i++) {
+    hash = ((hash << 5) + hash) + str.charCodeAt(i)*1234;
+  }
+  const hue = Math.abs(hash) % 360;
+  const {r, g, b} = hslToRgb(hue / 360., 0.5, 0.8);
+  const hex = ((Math.round(r * 255) << 16) | (Math.round(g * 255) << 8) | Math.round(b * 255));
+  return { r, g, b, hex };
+}
+
+function hslToRgb(h: number, s: number, l: number) {
+  let r: number, g: number, b: number;
+  if (s === 0) {
+    r = g = b = l;
+  } else {
+    const hue2rgb = (p: number, q: number, t: number) => {
+      if (t < 0) t += 1;
+      if (t > 1) t -= 1;
+      if (t < 1/6) return p + (q - p) * 6 * t;
+      if (t < 1/2) return q;
+      if (t < 2/3) return p + (q - p) * (2/3 - t) * 6;
+      return p;
+    };
+    const q = l < 0.5 ? l * (1 + s) : l + s - l * s;
+    const p = 2 * l - q;
+    r = hue2rgb(p, q, h + 1/3);
+    g = hue2rgb(p, q, h);
+    b = hue2rgb(p, q, h - 1/3);
+  }
+  return { r, g, b };
+}
 
   // Frustum alpha slider logic
   const slider = document.getElementById('frustumAlphaSlider') as HTMLInputElement;
@@ -68,200 +239,10 @@ document.addEventListener('DOMContentLoaded', () => {
   if (tleBtn) {
     tleBtn.addEventListener('click', () => {
       enableRealTleFetch();
-      // Reload the page to trigger real TLE fetch
-      window.location.reload();
+      loadSatellites();
     });
   }
 });
-
-function init(): void {
-  container = document.getElementById('app') as HTMLDivElement;
-
-  scene = new THREE.Scene();
-
-  // Camera: set up for km scale (Earth radius ~6371 km)
-  camera = new THREE.PerspectiveCamera(50, aspect, 1000, 1000000);
-  camera.position.set(0, -100000, 75000);
-  camera.lookAt(0, 0, 0);
-  camera.up.set( 0, 0, 1 );
-
-  renderer = new THREE.WebGLRenderer({ antialias: true });
-  renderer.setPixelRatio(window.devicePixelRatio);
-  renderer.setSize(SCREEN_WIDTH, SCREEN_HEIGHT);
-  renderer.setAnimationLoop(animate);
-  container.appendChild(renderer.domElement);
-  renderer.setScissorTest(true);
-
-  controls = new OrbitControls(camera, renderer.domElement);
-  controls.target.set(0, 0, 0);
-  controls.minDistance = 5000; // 1,000 km
-  controls.maxDistance = 200000; // 50,000 km
-  controls.enableDamping = true;
-  controls.dampingFactor = 0.05;
-
-  // Earth: radius = 6371 km
-  // Use custom projector shader material for earth
-  const MAX_PROJECTORS = 4;
-  const uniforms: any = {
-    numProjectors: { value: 0 },
-    tex0: { value: new THREE.Texture() },
-    tex1: { value: new THREE.Texture() },
-    tex2: { value: new THREE.Texture() },
-    tex3: { value: new THREE.Texture() },
-    cameraMatrix: { value: [new THREE.Matrix4(), new THREE.Matrix4(), new THREE.Matrix4(), new THREE.Matrix4()] },
-    projectorCameraPosition: { value: [new THREE.Vector3(), new THREE.Vector3(), new THREE.Vector3(), new THREE.Vector3()] },
-    cameraProjection: { value: [new THREE.Matrix4(), new THREE.Matrix4(), new THREE.Matrix4(), new THREE.Matrix4()] },
-    sphereRadius: { value: 6371.0 },
-  };
-  const projectorMaterial = new THREE.ShaderMaterial({
-    uniforms,
-    vertexShader: projectorVertexShader,
-    fragmentShader: projectorFragmentShader,
-    side: THREE.FrontSide,
-    transparent: false,
-    wireframe: false,
-  });
-  earth_mesh = new THREE.Mesh(
-    new THREE.SphereGeometry(6371, 64, 64),
-    projectorMaterial
-  );
-  earth_mesh.position.set(0, 0, 0);
-  scene.add(earth_mesh);
-  // Attach for animate loop
-  (earth_mesh as any).projectorMaterial = projectorMaterial;
-
-  // Fetch satellite frames and add markers/cameras/helpers
-  fetchLatestGoesFrames().then((frames: SatFrame[]) => {
-    console.log('Satellite frames:');
-    // Remove any previous widgets
-    satelliteImageWidgets.forEach(w => w.destroy());
-    satelliteImageWidgets = [];
-
-  frames.forEach((f, i) => {
-    // Convert ECEF from meters to kilometers
-    const satEcef_km = {
-      x: f.satEcef_m.x / 1000,
-      y: f.satEcef_m.y / 1000,
-      z: f.satEcef_m.z / 1000,
-    };
-    console.log(`Satellite: ${f.sat}, ECEF (km): (${satEcef_km.x.toFixed(1)}, ${satEcef_km.y.toFixed(1)}, ${satEcef_km.z.toFixed(1)})`);
-
-    // Create a PerspectiveCamera at the satellite's ECEF position (in km), with up = +Z
-    const cam = new THREE.PerspectiveCamera(f.fovDeg, f.aspect, 35000, 50000);
-    cam.up.set(0, 0, 1);
-    cam.position.set(satEcef_km.x, satEcef_km.y, satEcef_km.z);
-    cam.lookAt(0, 0, 0);
-    cam.updateMatrixWorld();
-
-// DJB2 hash for uniform hue distribution
-function hashStringToColor(str: string): {r:number,g:number,b:number,hex:number} {
-  let hash = 5381;
-  for (let i = 0; i < str.length; i++) {
-    hash = ((hash << 5) + hash) + str.charCodeAt(i)*1234;
-  }
-  const hue = Math.abs(hash) % 360;
-  const {r, g, b} = hslToRgb(hue / 360., 0.5, 0.8);
-  const hex = ((Math.round(r * 255) << 16) | (Math.round(g * 255) << 8) | Math.round(b * 255));
-  console.log(`hashStringToColor("${str}") = rgb(${Math.round(r*255)},${Math.round(g*255)},${Math.round(b*255)}), hex: #${hex.toString(16).padStart(6, '0')}`);
-  return { r, g, b, hex };
-}
-
-// HSL to RGB, returns {r,g,b} in [0,1]
-function hslToRgb(h: number, s: number, l: number) {
-  let r: number, g: number, b: number;
-  if (s === 0) {
-    r = g = b = l; // achromatic
-  } else {
-    const hue2rgb = (p: number, q: number, t: number) => {
-      if (t < 0) t += 1;
-      if (t > 1) t -= 1;
-      if (t < 1/6) return p + (q - p) * 6 * t;
-      if (t < 1/2) return q;
-      if (t < 2/3) return p + (q - p) * (2/3 - t) * 6;
-      return p;
-    };
-    const q = l < 0.5 ? l * (1 + s) : l + s - l * s;
-    const p = 2 * l - q;
-    r = hue2rgb(p, q, h + 1/3);
-    g = hue2rgb(p, q, h);
-    b = hue2rgb(p, q, h - 1/3);
-  }
-  return { r, g, b };
-}
-  const color = hashStringToColor(f.sat);
-
-    // Add a CameraHelper with custom color and alpha
-    const helper = new THREE.CameraHelper(cam);
-    // Set color and alpha for all lines in helper
-    if (helper.material) {
-      if (Array.isArray(helper.material)) {
-        helper.material.forEach((mat: any) => {
-          mat.opacity = frustumAlpha;
-          mat.transparent = frustumAlpha < 1.0;
-          if (mat.color && typeof mat.color.set === 'function') mat.color.set(color.hex);
-        });
-      } else {
-        const mat = helper.material as any;
-        mat.opacity = frustumAlpha;
-        mat.transparent = frustumAlpha < 1.0;
-        if (mat.color && typeof mat.color.set === 'function') mat.color.set(color.hex);
-      }
-    }
-    scene.add(helper);
-
-    // Add a visible marker (small sphere) for the satellite
-    const marker = new THREE.Mesh(
-      new THREE.SphereGeometry(100, 16, 16), // 100 km radius marker
-      new THREE.MeshBasicMaterial({ color: 0xffaa00 })
-    );
-    marker.position.set(satEcef_km.x, satEcef_km.y, satEcef_km.z);
-    scene.add(marker);
-
-    // Create a texture from the already-loaded HTMLImageElement
-    const tex = new THREE.Texture(f.image);
-    tex.needsUpdate = true;
-
-    satellites.push({
-      sat: f.sat,
-      camera: cam,
-      helper,
-      texture: tex,
-      frame: f,
-    });
-
-    // Create an inset image widget for this satellite image, with label
-    // Place vertically stacked, 20px from right, 20px from top + 148*i px
-    const widget = new InsetImageWidget(f.image.src, document.body, f.sat);
-    widget['container'].style.width = '128px';
-    widget['container'].style.right = '20px';
-    widget['container'].style.left = '';
-    widget['container'].style.top = (20 + i * 148) + 'px';
-    widget['container'].style.zIndex = (2000 + i).toString();
-    satelliteImageWidgets.push(widget);
-  });
-  });
-
-  // Add some distant stars for context (radius 30,000 km)
-  const geometry = new THREE.BufferGeometry();
-  const vertices: number[] = [];
-  const radius = 200000;
-  for (let i = 0; i < 10000; i++) {
-    // Uniformly distributed points on a sphere
-    const u = Math.random();
-    const v = Math.random();
-    const theta = 2 * Math.PI * u;
-    const phi = Math.acos(2 * v - 1);
-    const x = radius * Math.sin(phi) * Math.cos(theta);
-    const y = radius * Math.sin(phi) * Math.sin(theta);
-    const z = radius * Math.cos(phi);
-    vertices.push(x, y, z);
-  }
-  geometry.setAttribute('position', new THREE.Float32BufferAttribute(vertices, 3));
-  const particles = new THREE.Points(geometry, new THREE.PointsMaterial({ color: 0x888888 }));
-  scene.add(particles);
-
-  window.addEventListener('resize', onWindowResize);
-}
 
 function onWindowResize(): void {
   SCREEN_WIDTH = window.innerWidth;
