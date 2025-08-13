@@ -6,14 +6,19 @@
   "scripts": {
     "dev": "vite",
     "build": "vite build",
-    "preview": "vite preview --port 5173"
+    "preview": "vite preview --port 5173",
+    "test": "vitest run",
+    "test:watch": "vitest"
   },
   "dependencies": {
     "satellite.js": "^5.0.0",
     "three": "^0.179.0"
   },
   "devDependencies": {
+    "@types/node": "^24.2.1",
+    "jsdom": "^26.1.0",
     "typescript": "^5.5.4",
-    "vite": "^7.1.2"
+    "vite": "^7.1.2",
+    "vitest": "^3.2.4"
   }
 }
