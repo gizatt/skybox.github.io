@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls';
 import { fetchLatestGoesFrames, SatFrame } from './goes';
 import { InsetImageWidget } from './InsetImageWidget';
+import { projectorVertexShader, projectorFragmentShader } from './projectorMaterial';
 
 let SCREEN_WIDTH: number;
 let SCREEN_HEIGHT: number;
@@ -61,12 +62,35 @@ function init(): void {
   controls.dampingFactor = 0.05;
 
   // Earth: radius = 6371 km
+  // Use custom projector shader material for earth
+  const MAX_PROJECTORS = 4;
+  const uniforms: any = {
+    numProjectors: { value: 0 },
+    tex0: { value: new THREE.Texture() },
+    tex1: { value: new THREE.Texture() },
+    tex2: { value: new THREE.Texture() },
+    tex3: { value: new THREE.Texture() },
+    cameraMatrix: { value: [new THREE.Matrix4(), new THREE.Matrix4(), new THREE.Matrix4(), new THREE.Matrix4()] },
+    projectorCameraPosition: { value: [new THREE.Vector3(), new THREE.Vector3(), new THREE.Vector3(), new THREE.Vector3()] },
+    cameraProjection: { value: [new THREE.Matrix4(), new THREE.Matrix4(), new THREE.Matrix4(), new THREE.Matrix4()] },
+    sphereRadius: { value: 6371.0 },
+  };
+  const projectorMaterial = new THREE.ShaderMaterial({
+    uniforms,
+    vertexShader: projectorVertexShader,
+    fragmentShader: projectorFragmentShader,
+    side: THREE.FrontSide,
+    transparent: false,
+    wireframe: false,
+  });
   earth_mesh = new THREE.Mesh(
     new THREE.SphereGeometry(6371, 64, 64),
-    new THREE.MeshBasicMaterial({ color: 0x223366, wireframe: true })
+    projectorMaterial
   );
   earth_mesh.position.set(0, 0, 0);
   scene.add(earth_mesh);
+  // Attach for animate loop
+  (earth_mesh as any).projectorMaterial = projectorMaterial;
 
   // Fetch satellite frames and add markers/cameras/helpers
   fetchLatestGoesFrames().then((frames: SatFrame[]) => {
@@ -75,7 +99,7 @@ function init(): void {
     satelliteImageWidgets.forEach(w => w.destroy());
     satelliteImageWidgets = [];
 
-    frames.forEach((f, i) => {
+  frames.forEach((f, i) => {
       // Convert ECEF from meters to kilometers
       const satEcef_km = {
         x: f.satEcef_m.x / 1000,
@@ -164,18 +188,20 @@ function onWindowResize(): void {
 }
 
 function animate(): void {
-  // Update projector uniforms if available and cameraOrbiter is defined
-  if (
-    earth_mesh &&
-    (earth_mesh as any).projectorMaterial &&
-    (earth_mesh as any).projectorCamera &&
-    cameraOrbiter
-  ) {
+  // Update projector uniforms for all satellites
+  if (earth_mesh && (earth_mesh as any).projectorMaterial) {
     const mat = (earth_mesh as any).projectorMaterial as THREE.ShaderMaterial;
-    const cam = (earth_mesh as any).projectorCamera as THREE.PerspectiveCamera;
-  mat.uniforms.cameraMatrix.value.copy(cam.matrixWorld);
-  mat.uniforms.projectorCameraPosition.value.copy(cam.position);
-  mat.uniforms.cameraProjection.value.copy(cam.projectionMatrix);
+    const n = Math.min(satellites.length, 4);
+    mat.uniforms.numProjectors.value = n;
+    if (n > 0) mat.uniforms.tex0.value = satellites[0].texture;
+    if (n > 1) mat.uniforms.tex1.value = satellites[1].texture;
+    if (n > 2) mat.uniforms.tex2.value = satellites[2].texture;
+    if (n > 3) mat.uniforms.tex3.value = satellites[3].texture;
+    for (let i = 0; i < n; ++i) {
+      mat.uniforms.cameraMatrix.value[i].copy(satellites[i].camera.matrixWorld);
+      mat.uniforms.projectorCameraPosition.value[i].copy(satellites[i].camera.position);
+      mat.uniforms.cameraProjection.value[i].copy(satellites[i].camera.projectionMatrix);
+    }
   }
   controls.update();
   render();
