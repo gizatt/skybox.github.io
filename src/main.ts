@@ -23,6 +23,7 @@ type SatelliteProjector = {
 };
 let satellites: SatelliteProjector[] = [];
 let satelliteImageWidgets: InsetImageWidget[] = [];
+let frustumAlpha = 0.5;
 let cameraRig: THREE.Group;
 let cameraOrbiter: THREE.PerspectiveCamera;
 let cameraOrbiterHelper: THREE.CameraHelper;
@@ -34,6 +35,32 @@ document.addEventListener('DOMContentLoaded', () => {
   SCREEN_HEIGHT = window.innerHeight;
   aspect = SCREEN_WIDTH / SCREEN_HEIGHT;
   init();
+
+  // Frustum alpha slider logic
+  const slider = document.getElementById('frustumAlphaSlider') as HTMLInputElement;
+  const valueSpan = document.getElementById('frustumAlphaValue') as HTMLSpanElement;
+  if (slider && valueSpan) {
+    slider.value = frustumAlpha.toString();
+    valueSpan.textContent = frustumAlpha.toFixed(2);
+    slider.addEventListener('input', () => {
+      frustumAlpha = parseFloat(slider.value);
+      valueSpan.textContent = frustumAlpha.toFixed(2);
+      // Update all helpers' material opacity
+      satellites.forEach(sat => {
+        if (sat.helper && sat.helper.material) {
+          if (Array.isArray(sat.helper.material)) {
+            sat.helper.material.forEach((mat: any) => {
+              mat.opacity = frustumAlpha;
+              mat.transparent = frustumAlpha < 1.0;
+            });
+          } else {
+            (sat.helper.material as THREE.Material).opacity = frustumAlpha;
+            (sat.helper.material as THREE.Material).transparent = frustumAlpha < 1.0;
+          }
+        }
+      });
+    });
+  }
 });
 
 function init(): void {
@@ -100,55 +127,83 @@ function init(): void {
     satelliteImageWidgets = [];
 
   frames.forEach((f, i) => {
-      // Convert ECEF from meters to kilometers
-      const satEcef_km = {
-        x: f.satEcef_m.x / 1000,
-        y: f.satEcef_m.y / 1000,
-        z: f.satEcef_m.z / 1000,
-      };
-      console.log(`Satellite: ${f.sat}, ECEF (km): (${satEcef_km.x.toFixed(1)}, ${satEcef_km.y.toFixed(1)}, ${satEcef_km.z.toFixed(1)})`);
+    // Convert ECEF from meters to kilometers
+    const satEcef_km = {
+      x: f.satEcef_m.x / 1000,
+      y: f.satEcef_m.y / 1000,
+      z: f.satEcef_m.z / 1000,
+    };
+    console.log(`Satellite: ${f.sat}, ECEF (km): (${satEcef_km.x.toFixed(1)}, ${satEcef_km.y.toFixed(1)}, ${satEcef_km.z.toFixed(1)})`);
 
-  // Create a PerspectiveCamera at the satellite's ECEF position (in km), with up = +Z
-  const cam = new THREE.PerspectiveCamera(f.fovDeg, f.aspect, 35000, 50000);
-  cam.up.set(0, 0, 1);
-  cam.position.set(satEcef_km.x, satEcef_km.y, satEcef_km.z);
-  cam.lookAt(0, 0, 0);
-  cam.updateMatrixWorld();
+    // Create a PerspectiveCamera at the satellite's ECEF position (in km), with up = +Z
+    const cam = new THREE.PerspectiveCamera(f.fovDeg, f.aspect, 35000, 50000);
+    cam.up.set(0, 0, 1);
+    cam.position.set(satEcef_km.x, satEcef_km.y, satEcef_km.z);
+    cam.lookAt(0, 0, 0);
+    cam.updateMatrixWorld();
 
-      // Add a CameraHelper
-      const helper = new THREE.CameraHelper(cam);
-      scene.add(helper);
+    // Deterministic random color for each satellite (hash sat name)
+    function hashStringToColor(str: string): {r:number,g:number,b:number} {
+      let hash = 0;
+      for (let i = 0; i < str.length; i++) {
+        hash = str.charCodeAt(i) + ((hash << 5) - hash);
+      }
+      // Use hash to get r,g,b in [0,1]
+      const r = ((hash >> 0) & 0xFF) / 255;
+      const g = ((hash >> 8) & 0xFF) / 255;
+      const b = ((hash >> 16) & 0xFF) / 255;
+      return { r, g, b };
+    }
+    const color = hashStringToColor(f.sat);
 
-      // Add a visible marker (small sphere) for the satellite
-      const marker = new THREE.Mesh(
-        new THREE.SphereGeometry(100, 16, 16), // 100 km radius marker
-        new THREE.MeshBasicMaterial({ color: 0xffaa00 })
-      );
-      marker.position.set(satEcef_km.x, satEcef_km.y, satEcef_km.z);
-      scene.add(marker);
+    // Add a CameraHelper with custom color and alpha
+    const helper = new THREE.CameraHelper(cam);
+    // Set color and alpha for all lines in helper
+    if (helper.material) {
+      if (Array.isArray(helper.material)) {
+        helper.material.forEach((mat: any) => {
+          mat.opacity = frustumAlpha;
+          mat.transparent = frustumAlpha < 1.0;
+          mat.color = new THREE.Color(color.r, color.g, color.b);
+        });
+      } else {
+        (helper.material as THREE.Material).opacity = frustumAlpha;
+        (helper.material as THREE.Material).transparent = frustumAlpha < 1.0;
+        (helper.material as THREE.Material).color = new THREE.Color(color.r, color.g, color.b);
+      }
+    }
+    scene.add(helper);
 
-      // Create a texture from the already-loaded HTMLImageElement
-      const tex = new THREE.Texture(f.image);
-      tex.needsUpdate = true;
+    // Add a visible marker (small sphere) for the satellite
+    const marker = new THREE.Mesh(
+      new THREE.SphereGeometry(100, 16, 16), // 100 km radius marker
+      new THREE.MeshBasicMaterial({ color: 0xffaa00 })
+    );
+    marker.position.set(satEcef_km.x, satEcef_km.y, satEcef_km.z);
+    scene.add(marker);
 
-      satellites.push({
-        sat: f.sat,
-        camera: cam,
-        helper,
-        texture: tex,
-        frame: f,
-      });
+    // Create a texture from the already-loaded HTMLImageElement
+    const tex = new THREE.Texture(f.image);
+    tex.needsUpdate = true;
 
-  // Create an inset image widget for this satellite image, with label
-  // Place vertically stacked, 20px from right, 20px from top + 148*i px
-  const widget = new InsetImageWidget(f.image.src, document.body, f.sat);
-  widget['container'].style.width = '128px';
-  widget['container'].style.right = '20px';
-  widget['container'].style.left = '';
-  widget['container'].style.top = (20 + i * 148) + 'px';
-  widget['container'].style.zIndex = (2000 + i).toString();
-  satelliteImageWidgets.push(widget);
+    satellites.push({
+      sat: f.sat,
+      camera: cam,
+      helper,
+      texture: tex,
+      frame: f,
     });
+
+    // Create an inset image widget for this satellite image, with label
+    // Place vertically stacked, 20px from right, 20px from top + 148*i px
+    const widget = new InsetImageWidget(f.image.src, document.body, f.sat);
+    widget['container'].style.width = '128px';
+    widget['container'].style.right = '20px';
+    widget['container'].style.left = '';
+    widget['container'].style.top = (20 + i * 148) + 'px';
+    widget['container'].style.zIndex = (2000 + i).toString();
+    satelliteImageWidgets.push(widget);
+  });
   });
 
   // Add some distant stars for context (radius 30,000 km)
