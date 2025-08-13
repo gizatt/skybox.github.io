@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { InsetImageWidget } from './InsetImageWidget';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls';
 
 let SCREEN_WIDTH: number;
@@ -22,6 +23,8 @@ document.addEventListener('DOMContentLoaded', () => {
   SCREEN_WIDTH = window.innerWidth;
   SCREEN_HEIGHT = window.innerHeight;
   aspect = SCREEN_WIDTH / SCREEN_HEIGHT;
+  // Add floating image overlay
+  new InsetImageWidget('sample-goes.jpg');
   init();
 });
 
