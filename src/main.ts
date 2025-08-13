@@ -1,23 +1,21 @@
 import * as THREE from 'three';
-import Stats from 'three/addons/libs/stats.module.js';
+import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls';
 
 let SCREEN_WIDTH: number;
 let SCREEN_HEIGHT: number;
 let aspect: number;
 
 let container: HTMLDivElement;
-let stats: Stats;
 let camera: THREE.PerspectiveCamera;
-let scene: THREE.Scene;
+let controls: OrbitControls;
 let renderer: THREE.WebGLRenderer;
-let mesh: THREE.Mesh;
+let scene: THREE.Scene;
+let earth_mesh: THREE.Mesh;
 let cameraRig: THREE.Group;
+let cameraOrbiter: THREE.PerspectiveCamera;
+let cameraOrbiterHelper: THREE.CameraHelper;
 let activeCamera: THREE.Camera;
 let activeHelper: THREE.CameraHelper;
-let cameraPerspective: THREE.PerspectiveCamera;
-let cameraOrtho: THREE.OrthographicCamera;
-let cameraPerspectiveHelper: THREE.CameraHelper;
-let cameraOrthoHelper: THREE.CameraHelper;
 const frustumSize = 600;
 
 document.addEventListener('DOMContentLoaded', () => {
@@ -28,70 +26,13 @@ document.addEventListener('DOMContentLoaded', () => {
 });
 
 function init(): void {
-  const container = document.getElementById('app')!
+  container = document.getElementById('app') as HTMLDivElement;
 
   scene = new THREE.Scene();
 
-  camera = new THREE.PerspectiveCamera(50, 0.5 * aspect, 1, 10000);
-  camera.position.z = 2500;
-
-  cameraPerspective = new THREE.PerspectiveCamera(50, 0.5 * aspect, 150, 1000);
-  cameraPerspectiveHelper = new THREE.CameraHelper(cameraPerspective);
-  scene.add(cameraPerspectiveHelper);
-
-  cameraOrtho = new THREE.OrthographicCamera(
-    0.5 * frustumSize * aspect / -2,
-    0.5 * frustumSize * aspect / 2,
-    frustumSize / 2,
-    frustumSize / -2,
-    150,
-    1000
-  );
-  cameraOrthoHelper = new THREE.CameraHelper(cameraOrtho);
-  scene.add(cameraOrthoHelper);
-
-  activeCamera = cameraPerspective;
-  activeHelper = cameraPerspectiveHelper;
-
-  // counteract different front orientation of cameras vs rig
-  cameraOrtho.rotation.y = Math.PI;
-  cameraPerspective.rotation.y = Math.PI;
-
-  cameraRig = new THREE.Group();
-  cameraRig.add(cameraPerspective);
-  cameraRig.add(cameraOrtho);
-  scene.add(cameraRig);
-
-  mesh = new THREE.Mesh(
-    new THREE.SphereGeometry(100, 16, 8),
-    new THREE.MeshBasicMaterial({ color: 0xffffff, wireframe: true })
-  );
-  scene.add(mesh);
-
-  const mesh2 = new THREE.Mesh(
-    new THREE.SphereGeometry(50, 16, 8),
-    new THREE.MeshBasicMaterial({ color: 0x00ff00, wireframe: true })
-  );
-  mesh2.position.y = 150;
-  mesh.add(mesh2);
-
-  const mesh3 = new THREE.Mesh(
-    new THREE.SphereGeometry(5, 16, 8),
-    new THREE.MeshBasicMaterial({ color: 0x0000ff, wireframe: true })
-  );
-  mesh3.position.z = 150;
-  cameraRig.add(mesh3);
-
-  const geometry = new THREE.BufferGeometry();
-  const vertices: number[] = [];
-  for (let i = 0; i < 10000; i++) {
-    vertices.push(THREE.MathUtils.randFloatSpread(2000)); // x
-    vertices.push(THREE.MathUtils.randFloatSpread(2000)); // y
-    vertices.push(THREE.MathUtils.randFloatSpread(2000)); // z
-  }
-  geometry.setAttribute('position', new THREE.Float32BufferAttribute(vertices, 3));
-  const particles = new THREE.Points(geometry, new THREE.PointsMaterial({ color: 0x888888 }));
-  scene.add(particles);
+  camera = new THREE.PerspectiveCamera(50, aspect, 10, 5000);
+  camera.position.set(0, 0, 2500);
+  camera.lookAt(0, 0, 0);
 
   renderer = new THREE.WebGLRenderer({ antialias: true });
   renderer.setPixelRatio(window.devicePixelRatio);
@@ -100,23 +41,50 @@ function init(): void {
   container.appendChild(renderer.domElement);
   renderer.setScissorTest(true);
 
-  window.addEventListener('resize', onWindowResize);
-  document.addEventListener('keydown', onKeyDown);
-}
+  controls = new OrbitControls(camera, renderer.domElement);
+  controls.target.set(0, 0, 0);
+  controls.minDistance = 150;
+  controls.maxDistance = 3000;
+  controls.enableDamping = true;
+  controls.dampingFactor = 0.05;
 
-function onKeyDown(event: KeyboardEvent): void {
-  switch (event.key) {
-    case 'o':
-    case 'O':
-      activeCamera = cameraOrtho;
-      activeHelper = cameraOrthoHelper;
-      break;
-    case 'p':
-    case 'P':
-      activeCamera = cameraPerspective;
-      activeHelper = cameraPerspectiveHelper;
-      break;
+  cameraOrbiter = new THREE.PerspectiveCamera(50, 0.5 * aspect, 150, 1000);
+  cameraOrbiterHelper = new THREE.CameraHelper(cameraOrbiter);
+  scene.add(cameraOrbiterHelper);
+
+  activeCamera = cameraOrbiter;
+  activeHelper = cameraOrbiterHelper;
+
+  cameraRig = new THREE.Group();
+  cameraRig.add(cameraOrbiter);
+  scene.add(cameraRig);
+
+  earth_mesh = new THREE.Mesh(
+    new THREE.SphereGeometry(100, 32, 32),
+    new THREE.MeshBasicMaterial({ color: 0xffffff, wireframe: true })
+  );
+  earth_mesh.position.set(0, 0, 0); // Sphere at origin
+  scene.add(earth_mesh);
+
+  const geometry = new THREE.BufferGeometry();
+  const vertices: number[] = [];
+  const radius = 2000;
+  for (let i = 0; i < 10000; i++) {
+    // Uniformly distributed points on a sphere
+    const u = Math.random();
+    const v = Math.random();
+    const theta = 2 * Math.PI * u;
+    const phi = Math.acos(2 * v - 1);
+    const x = radius * Math.sin(phi) * Math.cos(theta);
+    const y = radius * Math.sin(phi) * Math.sin(theta);
+    const z = radius * Math.cos(phi);
+    vertices.push(x, y, z);
   }
+  geometry.setAttribute('position', new THREE.Float32BufferAttribute(vertices, 3));
+  const particles = new THREE.Points(geometry, new THREE.PointsMaterial({ color: 0x888888 }));
+  scene.add(particles);
+
+  window.addEventListener('resize', onWindowResize);
 }
 
 function onWindowResize(): void {
@@ -129,46 +97,24 @@ function onWindowResize(): void {
   camera.aspect = 0.5 * aspect;
   camera.updateProjectionMatrix();
 
-  cameraPerspective.aspect = 0.5 * aspect;
-  cameraPerspective.updateProjectionMatrix();
-
-  cameraOrtho.left = -0.5 * frustumSize * aspect / 2;
-  cameraOrtho.right = 0.5 * frustumSize * aspect / 2;
-  cameraOrtho.top = frustumSize / 2;
-  cameraOrtho.bottom = -frustumSize / 2;
-  cameraOrtho.updateProjectionMatrix();
+  cameraOrbiter.aspect = 0.5 * aspect;
+  cameraOrbiter.updateProjectionMatrix();
 }
 
 function animate(): void {
+  controls.update();
   render();
 }
 
 function render(): void {
   const r = Date.now() * 0.0005;
 
-  mesh.position.x = 700 * Math.cos(r);
-  mesh.position.z = 700 * Math.sin(r);
-  mesh.position.y = 700 * Math.sin(r);
-
-  (mesh.children[0] as THREE.Mesh).position.x = 70 * Math.cos(2 * r);
-  (mesh.children[0] as THREE.Mesh).position.z = 70 * Math.sin(r);
-
-  if (activeCamera === cameraPerspective) {
-    cameraPerspective.fov = 35 + 30 * Math.sin(0.5 * r);
-    cameraPerspective.far = mesh.position.length();
-    cameraPerspective.updateProjectionMatrix();
-    cameraPerspectiveHelper.update();
-    cameraPerspectiveHelper.visible = true;
-    cameraOrthoHelper.visible = false;
-  } else {
-    cameraOrtho.far = mesh.position.length();
-    cameraOrtho.updateProjectionMatrix();
-    cameraOrthoHelper.update();
-    cameraOrthoHelper.visible = true;
-    cameraPerspectiveHelper.visible = false;
-  }
-
-  cameraRig.lookAt(mesh.position);
+  // Perspective camera (with helper) orbits the origin and looks at it
+  const orbitRadius = 700;
+  cameraOrbiter.position.x = orbitRadius * Math.cos(r);
+  cameraOrbiter.position.z = orbitRadius * Math.sin(r);
+  cameraOrbiter.position.y = orbitRadius * Math.sin(r);
+  cameraOrbiter.lookAt(0, 0, 0);;
 
   // Only render the external view (right side)
   activeHelper.visible = true;
