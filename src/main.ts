@@ -1,144 +1,179 @@
-import * as THREE from 'three'
-import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js'
-import { makeEarthMaterial, updateProjector } from './projectorMaterial'
-import { deg2rad, geodeticToECEF, lookAtMatrix } from './math3d'
+import * as THREE from 'three';
+import Stats from 'three/addons/libs/stats.module.js';
 
-// Scene basics
-const app = document.getElementById('app')!
-const renderer = new THREE.WebGLRenderer({ antialias: true })
-renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2))
-renderer.setSize(window.innerWidth, window.innerHeight)
-app.appendChild(renderer.domElement)
+let SCREEN_WIDTH: number;
+let SCREEN_HEIGHT: number;
+let aspect: number;
 
-// Earth parameters (kkm). We'll treat units as kilometers in ECEF.
-const EARTH_RADIUS = 6.371
+let container: HTMLDivElement;
+let stats: Stats;
+let camera: THREE.PerspectiveCamera;
+let scene: THREE.Scene;
+let renderer: THREE.WebGLRenderer;
+let mesh: THREE.Mesh;
+let cameraRig: THREE.Group;
+let activeCamera: THREE.Camera;
+let activeHelper: THREE.CameraHelper;
+let cameraPerspective: THREE.PerspectiveCamera;
+let cameraOrtho: THREE.OrthographicCamera;
+let cameraPerspectiveHelper: THREE.CameraHelper;
+let cameraOrthoHelper: THREE.CameraHelper;
+const frustumSize = 600;
 
-const scene = new THREE.Scene()
-scene.background = new THREE.Color(0x05070f)
+document.addEventListener('DOMContentLoaded', () => {
+  SCREEN_WIDTH = window.innerWidth;
+  SCREEN_HEIGHT = window.innerHeight;
+  aspect = SCREEN_WIDTH / SCREEN_HEIGHT;
+  init();
+});
 
-const camera = new THREE.PerspectiveCamera(80, window.innerWidth / window.innerHeight, 1, EARTH_RADIUS*10)
-camera.position.set(0, 0, EARTH_RADIUS * 10);
-camera.updateProjectionMatrix();
+function init(): void {
+  const container = document.getElementById('app')!
 
-const controls = new OrbitControls(camera, renderer.domElement)
-controls.enableDamping = true
-controls.target.set(0, 0, 0)
-controls.minDistance = EARTH_RADIUS * 1.2; // stop inside atmosphere
-controls.maxDistance = EARTH_RADIUS * 40;  // don’t drift too far
+  scene = new THREE.Scene();
 
-// Lights (subtle)
-const light = new THREE.DirectionalLight(0xffffff, 0.8)
-light.position.set(1, 1, 1)
-scene.add(light, new THREE.AmbientLight(0xffffff, 0.2))
+  camera = new THREE.PerspectiveCamera(50, 0.5 * aspect, 1, 10000);
+  camera.position.z = 2500;
 
-scene.add(new THREE.AxesHelper(1.000)); // 1,000 km axes
+  cameraPerspective = new THREE.PerspectiveCamera(50, 0.5 * aspect, 150, 1000);
+  cameraPerspectiveHelper = new THREE.CameraHelper(cameraPerspective);
+  scene.add(cameraPerspectiveHelper);
 
-// Earth mesh (slightly smaller than radius if you want an atmosphere shell later)
-const earthGeo = new THREE.SphereGeometry(EARTH_RADIUS, 128, 128)
-const earthMat = makeEarthMaterial()
-const earth = new THREE.Mesh(earthGeo, earthMat)
-earth.material.side = THREE.BackSide;
-// earth.material.wireframe = true;
-scene.add(earth)
+  cameraOrtho = new THREE.OrthographicCamera(
+    0.5 * frustumSize * aspect / -2,
+    0.5 * frustumSize * aspect / 2,
+    frustumSize / 2,
+    frustumSize / -2,
+    150,
+    1000
+  );
+  cameraOrthoHelper = new THREE.CameraHelper(cameraOrtho);
+  scene.add(cameraOrthoHelper);
 
-// A simple marker for a GEO sat (GOES-like). We'll place it later.
-const satMarker = new THREE.Mesh(new THREE.SphereGeometry(0.120, 16, 16), new THREE.MeshBasicMaterial({ color: 0xffd27f }))
-scene.add(satMarker)
+  activeCamera = cameraPerspective;
+  activeHelper = cameraPerspectiveHelper;
 
-// Projector state
-const projectorTex = new THREE.Texture()
-projectorTex.minFilter = THREE.LinearMipMapLinearFilter
-projectorTex.magFilter = THREE.LinearFilter
-projectorTex.wrapS = THREE.ClampToEdgeWrapping
-projectorTex.wrapT = THREE.ClampToEdgeWrapping
-projectorTex.needsUpdate = false
+  // counteract different front orientation of cameras vs rig
+  cameraOrtho.rotation.y = Math.PI;
+  cameraPerspective.rotation.y = Math.PI;
 
-// Bind uniforms once
-;(earthMat as any).uniforms.uProjectorTex.value = projectorTex
+  cameraRig = new THREE.Group();
+  cameraRig.add(cameraPerspective);
+  cameraRig.add(cameraOrtho);
+  scene.add(cameraRig);
 
-// Default: no projection until an image is loaded
-;(earthMat as any).uniforms.uHasProjector.value = 0
+  mesh = new THREE.Mesh(
+    new THREE.SphereGeometry(100, 16, 8),
+    new THREE.MeshBasicMaterial({ color: 0xffffff, wireframe: true })
+  );
+  scene.add(mesh);
 
-// --- Sample: position a GOES-like GEO satellite over ~75.2°W at the equator
-// GEO altitude ~ 35,786 km above Earth's surface
-const goesLon = 180
-const goesLat = 0
-const GEO_ALTITUDE = 35.786
+  const mesh2 = new THREE.Mesh(
+    new THREE.SphereGeometry(50, 16, 8),
+    new THREE.MeshBasicMaterial({ color: 0x00ff00, wireframe: true })
+  );
+  mesh2.position.y = 150;
+  mesh.add(mesh2);
 
-const satECEF = geodeticToECEF(goesLat, goesLon, EARTH_RADIUS + GEO_ALTITUDE)
-satMarker.position.set(satECEF.x, satECEF.y, satECEF.z)
+  const mesh3 = new THREE.Mesh(
+    new THREE.SphereGeometry(5, 16, 8),
+    new THREE.MeshBasicMaterial({ color: 0x0000ff, wireframe: true })
+  );
+  mesh3.position.z = 150;
+  cameraRig.add(mesh3);
 
-// Projector camera properties – approximate FOV for full-disk ABI
-// https://www.eoportal.org/satellite-missions/goes-r?utm_source=chatgpt.com
-const fovDeg = 45
-const aspect = 1.0
-const near = 1
-const far = 1000
-// Build a real Three camera to steal its view matrix
-const projCam = new THREE.PerspectiveCamera(
-  fovDeg, aspect, near, far,
-);
-// Place the projector at the satellite, looking at Earth center with +Z up
-const satPos = new THREE.Vector3();
-console.log('Satellite ECEF position:', satPos);
-projCam.position.set(satECEF.x, satECEF.y, satECEF.z);
-projCam.lookAt(new THREE.Vector3(0, 0, 0));
-projCam.up.set(new THREE.Vector3(0, 0, 1));
-projCam.updateProjectionMatrix();
-projCam.updateMatrixWorld(true);
+  const geometry = new THREE.BufferGeometry();
+  const vertices: number[] = [];
+  for (let i = 0; i < 10000; i++) {
+    vertices.push(THREE.MathUtils.randFloatSpread(2000)); // x
+    vertices.push(THREE.MathUtils.randFloatSpread(2000)); // y
+    vertices.push(THREE.MathUtils.randFloatSpread(2000)); // z
+  }
+  geometry.setAttribute('position', new THREE.Float32BufferAttribute(vertices, 3));
+  const particles = new THREE.Points(geometry, new THREE.PointsMaterial({ color: 0x888888 }));
+  scene.add(particles);
 
-// Now take the actual matrices Three computed
-const view = projCam.matrixWorldInverse.clone(); // guaranteed view matrix
-const proj = projCam.projectionMatrix.clone();
-console.log('Projector view matrix:', view.elements);
-console.log('Projector projection matrix:', proj.elements);
+  renderer = new THREE.WebGLRenderer({ antialias: true });
+  renderer.setPixelRatio(window.devicePixelRatio);
+  renderer.setSize(SCREEN_WIDTH, SCREEN_HEIGHT);
+  renderer.setAnimationLoop(animate);
+  container.appendChild(renderer.domElement);
+  renderer.setScissorTest(true);
 
-;(earthMat as any).uniforms.uSatPos.value = satPos.clone();
-updateProjector(earthMat, view.invert(), proj);
-
-
-// Draw the projector camera frustum
-const frustumHelper = new THREE.CameraHelper(projCam);
-frustumHelper.update()
-scene.add(frustumHelper);
-
-// Animation loop
-function tick() {
-  controls.update()
-  renderer.render(scene, camera)
-  requestAnimationFrame(tick)
-}
-requestAnimationFrame(tick)
-
-// --- UI: load a sample image (bundled in /public) or use a local file ---
-
-async function loadImageToProjector(src: string | File) {
-  const img = new Image()
-  img.crossOrigin = 'anonymous'
-  const url = typeof src === 'string' ? src : URL.createObjectURL(src)
-  await new Promise<void>((resolve, reject) => {
-    img.onload = () => resolve()
-    img.onerror = (e) => reject(e)
-    img.src = url
-  })
-  projectorTex.image = img
-  projectorTex.needsUpdate = true
-  ;(earthMat as any).uniforms.uHasProjector.value = 1
-  if (src instanceof File) URL.revokeObjectURL(url)
+  window.addEventListener('resize', onWindowResize);
+  document.addEventListener('keydown', onKeyDown);
 }
 
-(document.getElementById('loadSample') as HTMLButtonElement).onclick = () => {
-  // You can replace this with a live URL if it supports CORS, or keep a local file at /public/sample-goes.jpg
-  loadImageToProjector('/sample-goes.jpg').catch(console.error)
+function onKeyDown(event: KeyboardEvent): void {
+  switch (event.key) {
+    case 'o':
+    case 'O':
+      activeCamera = cameraOrtho;
+      activeHelper = cameraOrthoHelper;
+      break;
+    case 'p':
+    case 'P':
+      activeCamera = cameraPerspective;
+      activeHelper = cameraPerspectiveHelper;
+      break;
+  }
 }
 
-(document.getElementById('customImage') as HTMLInputElement).onchange = (e) => {
-  const file = (e.target as HTMLInputElement).files?.[0]
-  if (file) loadImageToProjector(file).catch(console.error)
+function onWindowResize(): void {
+  SCREEN_WIDTH = window.innerWidth;
+  SCREEN_HEIGHT = window.innerHeight;
+  aspect = SCREEN_WIDTH / SCREEN_HEIGHT;
+
+  renderer.setSize(SCREEN_WIDTH, SCREEN_HEIGHT);
+
+  camera.aspect = 0.5 * aspect;
+  camera.updateProjectionMatrix();
+
+  cameraPerspective.aspect = 0.5 * aspect;
+  cameraPerspective.updateProjectionMatrix();
+
+  cameraOrtho.left = -0.5 * frustumSize * aspect / 2;
+  cameraOrtho.right = 0.5 * frustumSize * aspect / 2;
+  cameraOrtho.top = frustumSize / 2;
+  cameraOrtho.bottom = -frustumSize / 2;
+  cameraOrtho.updateProjectionMatrix();
 }
 
-window.addEventListener('resize', () => {
-  camera.aspect = window.innerWidth / window.innerHeight
-  camera.updateProjectionMatrix()
-  renderer.setSize(window.innerWidth, window.innerHeight)
-})
+function animate(): void {
+  render();
+}
+
+function render(): void {
+  const r = Date.now() * 0.0005;
+
+  mesh.position.x = 700 * Math.cos(r);
+  mesh.position.z = 700 * Math.sin(r);
+  mesh.position.y = 700 * Math.sin(r);
+
+  (mesh.children[0] as THREE.Mesh).position.x = 70 * Math.cos(2 * r);
+  (mesh.children[0] as THREE.Mesh).position.z = 70 * Math.sin(r);
+
+  if (activeCamera === cameraPerspective) {
+    cameraPerspective.fov = 35 + 30 * Math.sin(0.5 * r);
+    cameraPerspective.far = mesh.position.length();
+    cameraPerspective.updateProjectionMatrix();
+    cameraPerspectiveHelper.update();
+    cameraPerspectiveHelper.visible = true;
+    cameraOrthoHelper.visible = false;
+  } else {
+    cameraOrtho.far = mesh.position.length();
+    cameraOrtho.updateProjectionMatrix();
+    cameraOrthoHelper.update();
+    cameraOrthoHelper.visible = true;
+    cameraPerspectiveHelper.visible = false;
+  }
+
+  cameraRig.lookAt(mesh.position);
+
+  // Only render the external view (right side)
+  activeHelper.visible = true;
+  renderer.setClearColor(0x111111, 1);
+  renderer.setScissor(0, 0, SCREEN_WIDTH, SCREEN_HEIGHT);
+  renderer.setViewport(0, 0, SCREEN_WIDTH, SCREEN_HEIGHT);
+  renderer.render(scene, camera);
+}
