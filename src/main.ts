@@ -1,7 +1,6 @@
 import * as THREE from 'three';
-import { projectorVertexShader, projectorFragmentShader } from './projectorMaterial';
-import { InsetImageWidget } from './InsetImageWidget';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls';
+import { fetchLatestGoesFrames, SatFrame } from './goes';
 
 let SCREEN_WIDTH: number;
 let SCREEN_HEIGHT: number;
@@ -18,14 +17,11 @@ let cameraOrbiter: THREE.PerspectiveCamera;
 let cameraOrbiterHelper: THREE.CameraHelper;
 let activeCamera: THREE.Camera;
 let activeHelper: THREE.CameraHelper;
-const frustumSize = 600;
 
 document.addEventListener('DOMContentLoaded', () => {
   SCREEN_WIDTH = window.innerWidth;
   SCREEN_HEIGHT = window.innerHeight;
   aspect = SCREEN_WIDTH / SCREEN_HEIGHT;
-  // Add floating image overlay
-  new InsetImageWidget('sample-goes.jpg');
   init();
 });
 
@@ -52,45 +48,20 @@ function init(): void {
   controls.enableDamping = true;
   controls.dampingFactor = 0.05;
 
-  // Load image as texture and set up camera aspect
-  const loader = new THREE.TextureLoader();
-  loader.load('sample-goes.jpg', (texture: THREE.Texture) => {
-    // Set camera aspect to match image
-    const imgAspect = texture.image.width / texture.image.height;
-    cameraOrbiter = new THREE.PerspectiveCamera(50, imgAspect, 150, 1000);
-    cameraOrbiterHelper = new THREE.CameraHelper(cameraOrbiter);
-    scene.add(cameraOrbiterHelper);
+  // Only set up earth and controls for now
+  earth_mesh = new THREE.Mesh(
+    new THREE.SphereGeometry(100, 32, 32),
+    new THREE.MeshBasicMaterial({ color: 0x223366, wireframe: true })
+  );
+  earth_mesh.position.set(0, 0, 0);
+  scene.add(earth_mesh);
 
-    activeCamera = cameraOrbiter;
-    activeHelper = cameraOrbiterHelper;
-
-    cameraRig = new THREE.Group();
-    cameraRig.add(cameraOrbiter);
-    scene.add(cameraRig);
-
-    // Custom shader material for projection
-    const sphereMaterial = new THREE.ShaderMaterial({
-      uniforms: {
-        tex: { value: texture },
-        cameraMatrix: { value: cameraOrbiter.matrixWorld.clone() },
-        projectorCameraPosition: { value: cameraOrbiter.position.clone() },
-        cameraProjection: { value: cameraOrbiter.projectionMatrix.clone() },
-        sphereRadius: { value: 100.0 },
-      },
-      vertexShader: projectorVertexShader,
-      fragmentShader: projectorFragmentShader,
+  // Fetch satellite frames and log their names and locations
+  fetchLatestGoesFrames().then((frames: SatFrame[]) => {
+    console.log('Satellite frames:');
+    frames.forEach(f => {
+      console.log(`Satellite: ${f.sat}, ECEF: (${f.satEcef_m.x.toFixed(0)}, ${f.satEcef_m.y.toFixed(0)}, ${f.satEcef_m.z.toFixed(0)})`);
     });
-
-    earth_mesh = new THREE.Mesh(
-      new THREE.SphereGeometry(100, 32, 32),
-      sphereMaterial
-    );
-    earth_mesh.position.set(0, 0, 0); // Sphere at origin
-    scene.add(earth_mesh);
-
-  // Store reference for per-frame uniform update
-  (earth_mesh as any).projectorMaterial = sphereMaterial;
-  (earth_mesh as any).projectorCamera = cameraOrbiter;
   });
 
   const geometry = new THREE.BufferGeometry();
