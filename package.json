@@ -11,6 +11,7 @@
     "test:watch": "vitest"
   },
   "dependencies": {
+    "idb-keyval": "^6.2.2",
     "satellite.js": "^5.0.0",
     "three": "^0.179.0"
   },
