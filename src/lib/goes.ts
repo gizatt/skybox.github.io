@@ -110,7 +110,24 @@ async function resolveLatestImage(sat: SatId) {
   return null;
 }
 
+let USE_REAL_TLE = false;
+// Expose for main.ts
+export function enableRealTleFetch() { USE_REAL_TLE = true; }
+
 async function fetchGoesTLEsBySatId() {
+  if (!USE_REAL_TLE) {
+    // Reasonable stub TLEs for GOES-18 and GOES-19 (as of 2024)
+    return {
+      G18: {
+        line1: "1 49857U 22057A   24225.50000000  .00000000  00000-0  00000-0 0  9990",
+        line2: "2 49857   0.0170  0.0000 0001000  90.0000 270.0000  1.00270000    01"
+      },
+      G19: {
+        line1: "1 56370U 23067A   24225.50000000  .00000000  00000-0  00000-0 0  9990",
+        line2: "2 56370   0.0170  0.0000 0001000 180.0000   0.0000  1.00270000    01"
+      }
+    };
+  }
   // cached + conditional GET via injected fetch
   const txt = await fetchTextCached(CELESTRAK_GOES_TLE_URL, _fetchImpl, {
     ttlMs: 6 * 60 * 60 * 1000,  // 6 hours

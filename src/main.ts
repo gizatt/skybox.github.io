@@ -30,6 +30,7 @@ let cameraOrbiterHelper: THREE.CameraHelper;
 let activeCamera: THREE.Camera;
 let activeHelper: THREE.CameraHelper;
 
+import { enableRealTleFetch } from './lib/goes';
 document.addEventListener('DOMContentLoaded', () => {
   SCREEN_WIDTH = window.innerWidth;
   SCREEN_HEIGHT = window.innerHeight;
@@ -59,6 +60,16 @@ document.addEventListener('DOMContentLoaded', () => {
           }
         }
       });
+    });
+  }
+
+  // Real TLE button logic
+  const tleBtn = document.getElementById('loadTleBtn');
+  if (tleBtn) {
+    tleBtn.addEventListener('click', () => {
+      enableRealTleFetch();
+      // Reload the page to trigger real TLE fetch
+      window.location.reload();
     });
   }
 });
