@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls';
 import { fetchLatestGoesFrames, SatFrame } from './goes';
+import { InsetImageWidget } from './InsetImageWidget';
 
 let SCREEN_WIDTH: number;
 let SCREEN_HEIGHT: number;
@@ -20,6 +21,7 @@ type SatelliteProjector = {
   frame: SatFrame;
 };
 let satellites: SatelliteProjector[] = [];
+let satelliteImageWidgets: InsetImageWidget[] = [];
 let cameraRig: THREE.Group;
 let cameraOrbiter: THREE.PerspectiveCamera;
 let cameraOrbiterHelper: THREE.CameraHelper;
@@ -68,7 +70,11 @@ function init(): void {
   // Fetch satellite frames and add markers/cameras/helpers
   fetchLatestGoesFrames().then((frames: SatFrame[]) => {
     console.log('Satellite frames:');
-    frames.forEach(f => {
+    // Remove any previous widgets
+    satelliteImageWidgets.forEach(w => w.destroy());
+    satelliteImageWidgets = [];
+
+    frames.forEach((f, i) => {
       // Convert ECEF from meters to kilometers
       const satEcef_km = {
         x: f.satEcef_m.x / 1000,
@@ -106,6 +112,16 @@ function init(): void {
         texture: tex,
         frame: f,
       });
+
+  // Create an inset image widget for this satellite image, with label
+  // Place vertically stacked, 20px from right, 20px from top + 148*i px
+  const widget = new InsetImageWidget(f.image.src, document.body, f.sat);
+  widget['container'].style.width = '128px';
+  widget['container'].style.right = '20px';
+  widget['container'].style.left = '';
+  widget['container'].style.top = (20 + i * 148) + 'px';
+  widget['container'].style.zIndex = (2000 + i).toString();
+  satelliteImageWidgets.push(widget);
     });
   });
 

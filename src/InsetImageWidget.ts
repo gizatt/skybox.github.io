@@ -2,6 +2,7 @@
 export class InsetImageWidget {
   private container: HTMLDivElement;
   private img: HTMLImageElement;
+  private labelDiv: HTMLDivElement;
   private isDragging = false;
   private dragOffsetX = 0;
   private dragOffsetY = 0;
@@ -13,13 +14,14 @@ export class InsetImageWidget {
   private imageAspect = 4 / 3; // Default aspect ratio
   private resizeHandle: HTMLDivElement;
 
-  constructor(imageUrl: string, parent: HTMLElement = document.body) {
+
+  constructor(imageUrl: string, parent: HTMLElement = document.body, label: string = '') {
     this.container = document.createElement('div');
     this.container.className = 'inset-image-widget';
-  this.container.style.position = 'fixed';
-  this.container.style.top = '20px';
-  this.container.style.right = '20px';
-  this.container.style.left = '';
+    this.container.style.position = 'fixed';
+    this.container.style.top = '20px';
+    this.container.style.right = '20px';
+    this.container.style.left = '';
     this.container.style.width = '120px';
     this.container.style.height = '90px';
     this.container.style.zIndex = '1000';
@@ -27,8 +29,9 @@ export class InsetImageWidget {
     this.container.style.borderRadius = '8px';
     this.container.style.boxShadow = '0 2px 8px rgba(0,0,0,0.3)';
     this.container.style.display = 'flex';
+    this.container.style.flexDirection = 'column';
     this.container.style.alignItems = 'center';
-    this.container.style.justifyContent = 'center';
+    this.container.style.justifyContent = 'flex-start';
     this.container.style.cursor = 'grab';
 
     this.img = document.createElement('img');
@@ -42,16 +45,29 @@ export class InsetImageWidget {
         this.imageAspect = this.img.naturalWidth / this.img.naturalHeight;
         // Optionally, update widget size to match aspect
         const w = this.container.offsetWidth;
-        this.container.style.height = (w / this.imageAspect) + 'px';
+        this.container.style.height = (w / this.imageAspect + 28) + 'px'; // 28px for label
       }
     };
     this.container.appendChild(this.img);
+
+    // Label div
+    this.labelDiv = document.createElement('div');
+    this.labelDiv.textContent = label;
+    this.labelDiv.style.width = '100%';
+    this.labelDiv.style.textAlign = 'center';
+    this.labelDiv.style.fontSize = '13px';
+    this.labelDiv.style.color = '#fff';
+    this.labelDiv.style.background = 'rgba(0,0,0,0.3)';
+    this.labelDiv.style.borderRadius = '0 0 8px 8px';
+    this.labelDiv.style.marginTop = '4px';
+    this.labelDiv.style.padding = '2px 0 4px 0';
+    this.container.appendChild(this.labelDiv);
 
     // Resize handle
     this.resizeHandle = document.createElement('div');
     this.resizeHandle.style.position = 'absolute';
     this.resizeHandle.style.right = '2px';
-    this.resizeHandle.style.bottom = '2px';
+    this.resizeHandle.style.bottom = '24px'; // above label
     this.resizeHandle.style.width = '16px';
     this.resizeHandle.style.height = '16px';
     this.resizeHandle.style.background = 'rgba(255,255,255,0.7)';
@@ -73,8 +89,12 @@ export class InsetImageWidget {
   }
 
   setImage(url: string) {
-  this.img.src = url;
-  // Aspect will update on image load
+    this.img.src = url;
+    // Aspect will update on image load
+  }
+
+  setLabel(label: string) {
+    this.labelDiv.textContent = label;
   }
 
   private onDragStart = (e: MouseEvent) => {
