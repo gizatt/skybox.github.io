@@ -270,11 +270,14 @@ function onWindowResize(): void {
 
   renderer.setSize(SCREEN_WIDTH, SCREEN_HEIGHT);
 
-  camera.aspect = 0.5 * aspect;
-  camera.updateProjectionMatrix();
-
-  cameraOrbiter.aspect = 0.5 * aspect;
-  cameraOrbiter.updateProjectionMatrix();
+  if (camera) {
+    camera.aspect = aspect;
+    camera.updateProjectionMatrix();
+  }
+  if (cameraOrbiter) {
+    cameraOrbiter.aspect = aspect;
+    cameraOrbiter.updateProjectionMatrix();
+  }
 }
 
 function animate(): void {

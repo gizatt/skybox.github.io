@@ -29,7 +29,7 @@ export const projectorFragmentShader = `
     vec3 normal = normalize(vWorldPosition);
     vec3 toCamera = normalize(projectorCameraPosition[idx] - vWorldPosition);
     float facing = dot(normal, toCamera);
-    if (facing > 0.0) {
+    if (facing > 0.01) {
       vec3 dir = normalize(vWorldPosition - projectorCameraPosition[idx]);
       vec4 camSpace = inverse(cameraMatrix[idx]) * vec4(dir, 0.0);
       vec4 ndc = cameraProjection[idx] * vec4(camSpace.xyz, 1.0);
