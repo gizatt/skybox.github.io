@@ -42,8 +42,9 @@ function init(): void {
 
   // Camera: set up for km scale (Earth radius ~6371 km)
   camera = new THREE.PerspectiveCamera(50, aspect, 1000, 1000000);
-  camera.position.set(0, 0, 100000); // 20,000 km away
+  camera.position.set(0, -100000, 75000);
   camera.lookAt(0, 0, 0);
+  camera.up.set( 0, 0, 1 );
 
   renderer = new THREE.WebGLRenderer({ antialias: true });
   renderer.setPixelRatio(window.devicePixelRatio);
@@ -83,11 +84,12 @@ function init(): void {
       };
       console.log(`Satellite: ${f.sat}, ECEF (km): (${satEcef_km.x.toFixed(1)}, ${satEcef_km.y.toFixed(1)}, ${satEcef_km.z.toFixed(1)})`);
 
-      // Create a PerspectiveCamera at the satellite's ECEF position (in km)
-      const cam = new THREE.PerspectiveCamera(f.fovDeg, f.aspect, 100, 50000);
-      cam.position.set(satEcef_km.x, satEcef_km.y, satEcef_km.z);
-      cam.lookAt(0, 0, 0);
-      cam.updateMatrixWorld();
+  // Create a PerspectiveCamera at the satellite's ECEF position (in km), with up = +Z
+  const cam = new THREE.PerspectiveCamera(f.fovDeg, f.aspect, 35000, 50000);
+  cam.up.set(0, 0, 1);
+  cam.position.set(satEcef_km.x, satEcef_km.y, satEcef_km.z);
+  cam.lookAt(0, 0, 0);
+  cam.updateMatrixWorld();
 
       // Add a CameraHelper
       const helper = new THREE.CameraHelper(cam);
