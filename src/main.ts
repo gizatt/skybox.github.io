@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls';
-import { fetchLatestGoesFrames, SatFrame } from './goes';
+import { fetchLatestGoesFrames, SatFrame } from './lib/goes';
 import { InsetImageWidget } from './InsetImageWidget';
 import { projectorVertexShader, projectorFragmentShader } from './projectorMaterial';
 

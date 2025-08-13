@@ -1,4 +1,5 @@
 import { vi } from 'vitest';
+import 'fake-indexeddb/auto';
 
 // Default: explode if anything tries to use real fetch
 (globalThis as any).fetch = vi.fn(() => {

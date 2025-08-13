@@ -1,4 +1,5 @@
 import * as satellite from "satellite.js";
+import { fetchTextCached } from "./tleCache";
 
 // DI points (defaults to browser fetch/Image loader)
 export type FetchFn = (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>;
@@ -57,6 +58,7 @@ export async function fetchLatestGoesFrames(): Promise<SatFrame[]> {
     resolveLatestImage("G19"),
     resolveLatestImage("G18"),
   ]);
+  
   const tleBySat = await fetchGoesTLEsBySatId();
 
   const out: SatFrame[] = [];
@@ -88,41 +90,36 @@ function buildFrame(
 }
 
 // ---------------- Impl (with DI) ----------------
-async function resolveLatestImage(
-  sat: SatId
-): Promise<{ url: string; image: HTMLImageElement; timestamp: Date } | null> {
+async function resolveLatestImage(sat: SatId) {
   for (const candidate of IMAGE_CANDIDATES[sat]) {
     try {
-      const res = await _fetchImpl(candidate, {
-        method: "GET",
-        cache: "no-store",
-        mode: "cors" as RequestMode,
-      });
+      // go through injected fetch, and let browser cache images
+      const res = await _fetchImpl(candidate, { method: "GET", mode: "cors" as RequestMode });
       if (!res.ok) continue;
-      const finalUrl = (res as any).url || candidate; // some fetch impls set url
+
+      const finalUrl = res.url || candidate;
       const ts = parseTimestampFromUrl(finalUrl)
-             ?? parseHttpDate(res.headers.get("last-modified"))
-             ?? new Date();
-      const image = await _loadImageImpl(finalUrl);
-      return { url: finalUrl, image, timestamp: ts };
-    } catch {
-      // try next
-    }
+              ?? parseHttpDate(res.headers.get("last-modified"))
+              ?? new Date();
+
+      // go through injected image loader (tests can stub)
+      const img = await _loadImageImpl(finalUrl);
+      return { url: finalUrl, image: img, timestamp: ts };
+    } catch { /* try next */ }
   }
   return null;
 }
 
-async function fetchText(url: string): Promise<string> {
-  const res = await _fetchImpl(url, { mode: "cors" as RequestMode, cache: "no-store" });
-  if (!res.ok) throw new Error(`HTTP ${res.status} for ${url}`);
-  return res.text();
-}
+async function fetchGoesTLEsBySatId() {
+  // cached + conditional GET via injected fetch
+  const txt = await fetchTextCached(CELESTRAK_GOES_TLE_URL, _fetchImpl, {
+    ttlMs: 6 * 60 * 60 * 1000,  // 6 hours
+    revalidate: true,
+  });
 
-async function fetchGoesTLEsBySatId(): Promise<Record<SatId, { line1: string; line2: string } | null>> {
-  const txt = await fetchText(CELESTRAK_GOES_TLE_URL);
   const lines = txt.split(/\r?\n/).map(s => s.trim()).filter(Boolean);
   const out: Record<SatId, { line1: string; line2: string } | null> = { G18: null, G19: null };
-  for (let i=0; i<lines.length-2; i+=3) {
+  for (let i = 0; i < lines.length - 2; i += 3) {
     const name = lines[i];
     const satId = nameToSatId(name);
     if (!satId || out[satId]) continue;
