@@ -12,6 +12,14 @@ let controls: OrbitControls;
 let renderer: THREE.WebGLRenderer;
 let scene: THREE.Scene;
 let earth_mesh: THREE.Mesh;
+type SatelliteProjector = {
+  sat: string;
+  camera: THREE.PerspectiveCamera;
+  helper: THREE.CameraHelper;
+  texture: THREE.Texture;
+  frame: SatFrame;
+};
+let satellites: SatelliteProjector[] = [];
 let cameraRig: THREE.Group;
 let cameraOrbiter: THREE.PerspectiveCamera;
 let cameraOrbiterHelper: THREE.CameraHelper;
@@ -30,8 +38,9 @@ function init(): void {
 
   scene = new THREE.Scene();
 
-  camera = new THREE.PerspectiveCamera(50, aspect, 10, 5000);
-  camera.position.set(0, 0, 2500);
+  // Camera: set up for km scale (Earth radius ~6371 km)
+  camera = new THREE.PerspectiveCamera(50, aspect, 1000, 1000000);
+  camera.position.set(0, 0, 100000); // 20,000 km away
   camera.lookAt(0, 0, 0);
 
   renderer = new THREE.WebGLRenderer({ antialias: true });
@@ -43,30 +52,67 @@ function init(): void {
 
   controls = new OrbitControls(camera, renderer.domElement);
   controls.target.set(0, 0, 0);
-  controls.minDistance = 150;
-  controls.maxDistance = 3000;
+  controls.minDistance = 5000; // 1,000 km
+  controls.maxDistance = 200000; // 50,000 km
   controls.enableDamping = true;
   controls.dampingFactor = 0.05;
 
-  // Only set up earth and controls for now
+  // Earth: radius = 6371 km
   earth_mesh = new THREE.Mesh(
-    new THREE.SphereGeometry(100, 32, 32),
+    new THREE.SphereGeometry(6371, 64, 64),
     new THREE.MeshBasicMaterial({ color: 0x223366, wireframe: true })
   );
   earth_mesh.position.set(0, 0, 0);
   scene.add(earth_mesh);
 
-  // Fetch satellite frames and log their names and locations
+  // Fetch satellite frames and add markers/cameras/helpers
   fetchLatestGoesFrames().then((frames: SatFrame[]) => {
     console.log('Satellite frames:');
     frames.forEach(f => {
-      console.log(`Satellite: ${f.sat}, ECEF: (${f.satEcef_m.x.toFixed(0)}, ${f.satEcef_m.y.toFixed(0)}, ${f.satEcef_m.z.toFixed(0)})`);
+      // Convert ECEF from meters to kilometers
+      const satEcef_km = {
+        x: f.satEcef_m.x / 1000,
+        y: f.satEcef_m.y / 1000,
+        z: f.satEcef_m.z / 1000,
+      };
+      console.log(`Satellite: ${f.sat}, ECEF (km): (${satEcef_km.x.toFixed(1)}, ${satEcef_km.y.toFixed(1)}, ${satEcef_km.z.toFixed(1)})`);
+
+      // Create a PerspectiveCamera at the satellite's ECEF position (in km)
+      const cam = new THREE.PerspectiveCamera(f.fovDeg, f.aspect, 100, 50000);
+      cam.position.set(satEcef_km.x, satEcef_km.y, satEcef_km.z);
+      cam.lookAt(0, 0, 0);
+      cam.updateMatrixWorld();
+
+      // Add a CameraHelper
+      const helper = new THREE.CameraHelper(cam);
+      scene.add(helper);
+
+      // Add a visible marker (small sphere) for the satellite
+      const marker = new THREE.Mesh(
+        new THREE.SphereGeometry(100, 16, 16), // 100 km radius marker
+        new THREE.MeshBasicMaterial({ color: 0xffaa00 })
+      );
+      marker.position.set(satEcef_km.x, satEcef_km.y, satEcef_km.z);
+      scene.add(marker);
+
+      // Create a texture from the already-loaded HTMLImageElement
+      const tex = new THREE.Texture(f.image);
+      tex.needsUpdate = true;
+
+      satellites.push({
+        sat: f.sat,
+        camera: cam,
+        helper,
+        texture: tex,
+        frame: f,
+      });
     });
   });
 
+  // Add some distant stars for context (radius 30,000 km)
   const geometry = new THREE.BufferGeometry();
   const vertices: number[] = [];
-  const radius = 2000;
+  const radius = 200000;
   for (let i = 0; i < 10000; i++) {
     // Uniformly distributed points on a sphere
     const u = Math.random();
