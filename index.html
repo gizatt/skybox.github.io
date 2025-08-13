@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Skybox</title>
+    <style>
+      html, body, #app { height: 100%; margin: 0; background: #0b1020; }
+      #hud { position: absolute; top: 8px; left: 8px; color: #cfe3ff; font-family: ui-sans-serif, system-ui; background: rgba(0,0,0,0.35); padding: 8px 10px; border-radius: 8px; }
+      #hud input[type="file"] { display: none; }
+      .btn { cursor: pointer; padding: 6px 10px; border: 1px solid #5a7abf; border-radius: 6px; background: rgba(20,30,60,0.7); color: #cfe3ff; }
+      .row { display: flex; gap: 8px; align-items: center; }
+      a { color: #99c2ff; }
+    </style>
+  </head>
+  <body>
+    <div id="app"></div>
+    <div id="hud">
+      <div class="row" style="margin-bottom:6px;">
+        <strong>Satellite Projector – MVP</strong>
+      </div>
+      <div class="row">
+        <button id="loadSample" class="btn">Load sample GOES image</button>
+        <label for="customImage" class="btn" title="Use your own JPG/PNG">Use local image</label>
+        <input id="customImage" type="file" accept="image/*" />
+      </div>
+      <div style="margin-top:6px;font-size:12px;opacity:0.9;">
+        Drag to orbit · Scroll to zoom · Right-drag to pan
+      </div>
+    </div>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>
