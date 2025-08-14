@@ -1,9 +1,11 @@
 import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls';
 import { fetchLatestGoesFrames, SatFrame } from './lib/goes';
+import { OBJLoader } from 'three-stdlib';
 import { InsetImageWidget } from './InsetImageWidget';
 import { projectorVertexShader, projectorFragmentShader } from './projectorMaterial';
 import {hashStringToColor} from "./lib/colorUtil"
+import { getApproxSunDirection } from './lib/sunUtil';
 
 let SCREEN_WIDTH: number;
 let SCREEN_HEIGHT: number;
@@ -24,7 +26,7 @@ type SatelliteProjector = {
 };
 let satellites: SatelliteProjector[] = [];
 let satelliteImageWidgets: InsetImageWidget[] = [];
-let frustumAlpha = 0.5;
+let frustumAlpha = 0.25;
 let fovFineAdj = 0.0; // degrees, -1 to +1
 let cameraOrbiter: THREE.PerspectiveCamera;
 let activeHelper: THREE.CameraHelper;
@@ -38,6 +40,32 @@ document.addEventListener('DOMContentLoaded', () => {
   // Setup Three.js scene, camera, renderer, controls
   container = document.getElementById('app') as HTMLDivElement;
   scene = new THREE.Scene();
+  // Add lighting for satellite OBJ models (after scene is created)
+  // Set sunlight direction to match sun's current position
+  const sunDir = getApproxSunDirection(new Date());
+  const sunLight = new THREE.DirectionalLight(0xffffff, 100.0);
+  sunLight.position.copy(sunDir.clone().multiplyScalar(200000)); // far from earth, in sun direction
+  scene.add(sunLight);
+  // Draw a bright yellow ray from Earth's center in the sun direction
+  // Sun ray now starts at innerAltitude and ends at outerAltitude
+  const innerAltitude = 15000;
+  const outerAltitude = 30000;
+  const sunRayColor = 0xffff00;
+  const sunRayDir = getApproxSunDirection(new Date());
+  // ArrowHelper: dir, origin, length, color, headLength, headWidth
+  const sunArrowLength = outerAltitude - innerAltitude;
+  const sunArrow = new THREE.ArrowHelper(
+    sunRayDir,
+    sunRayDir.clone().multiplyScalar(innerAltitude),
+    sunArrowLength,
+    sunRayColor,
+    2000, // headLength
+    800   // headWidth
+  );
+  scene.add(sunArrow);
+
+  const ambientLight = new THREE.AmbientLight(0xffffff, 0.4);
+  scene.add(ambientLight);
   camera = new THREE.PerspectiveCamera(50, aspect, 1000, 1000000);
   camera.position.set(0, -100000, 75000);
   camera.lookAt(0, 0, 0);
@@ -83,6 +111,57 @@ document.addEventListener('DOMContentLoaded', () => {
   scene.add(earth_mesh);
   (earth_mesh as any).projectorMaterial = projectorMaterial;
 
+  // --- Add Earth's axis of rotation (white, thin, long) ---
+  const axisLength = 20000;
+  const axisGeom = new THREE.CylinderGeometry(40, 40, axisLength, 32);
+  const axisMat = new THREE.MeshBasicMaterial({ color: 0xffffff });
+  const axisMesh = new THREE.Mesh(axisGeom, axisMat);
+  axisMesh.position.set(0, 0, 0);
+  axisMesh.rotation.x = Math.PI / 2; // align with Z axis
+  scene.add(axisMesh);
+
+  // --- Add "Earth spins in this direction" arrow circling the north pole ---
+  // We'll draw a partial torus (arc) and add an arrowhead at the end
+  const spinArrowRadius = 2000; // km, just above the pole
+  const spinArrowThickness = 200;
+  const spinArrowColor = 0xffffff;
+  const spinArcAngle = Math.PI * 1.2; // 216 degrees
+  // Arc in X-Y plane, centered at north pole (0,0,axisLength/2)
+  const arcCurve = new THREE.ArcCurve(
+    0, 0, spinArrowRadius, Math.PI * 0.1, spinArcAngle, false
+  );
+  const arcPoints = arcCurve.getPoints(60);
+  const arc3DPoints = arcPoints.map(pt => new THREE.Vector3(pt.x, pt.y, axisLength/2 - 500));
+  const spinArcGeom = new THREE.BufferGeometry().setFromPoints(arc3DPoints);
+  const spinArcMat = new THREE.LineBasicMaterial({ color: spinArrowColor, linewidth: 6 });
+  const spinArc = new THREE.Line(spinArcGeom, spinArcMat);
+  scene.add(spinArc);
+  // Arrowhead at end of arc
+  const arrowTail = arc3DPoints[arc3DPoints.length - 2];
+  const arrowTip = arc3DPoints[arc3DPoints.length - 1];
+  const arrowDir = arrowTip.clone().sub(arrowTail).normalize();
+  const spinArrowHead = new THREE.ArrowHelper(
+    arrowDir,
+    arrowTail,
+    800, // length
+    spinArrowColor,
+    600, // headLength
+    300  // headWidth
+  );
+  scene.add(spinArrowHead);
+
+  // --- Add Earth's magnetic axis (light purple, thicker, slightly tilted) ---
+  // Magnetic axis is about 11 degrees from rotation axis, toward Greenwich (0°E)
+  const magAxisLength = 18000;
+  const magAxisGeom = new THREE.CylinderGeometry(40, 40, magAxisLength, 32);
+  const magAxisMat = new THREE.MeshBasicMaterial({ color: 0xc02070 });
+  const magAxisMesh = new THREE.Mesh(magAxisGeom, magAxisMat);
+  magAxisMesh.position.set(0, 0, 0);
+  // Tilt by 11° toward +X (Greenwich meridian)
+  magAxisMesh.rotation.x = Math.PI / 2;
+  magAxisMesh.rotation.z = -THREE.MathUtils.degToRad(11);
+  scene.add(magAxisMesh);
+
   // Add distant stars
   const geometry = new THREE.BufferGeometry();
   const vertices: number[] = [];
@@ -121,7 +200,9 @@ function clearSatellitesFromScene() {
 async function loadSatellites() {
   clearSatellitesFromScene();
   const frames = await fetchLatestGoesFrames();
-  frames.forEach((f, i) => {
+  const objLoader = new OBJLoader();
+  const satObjUrl = 'satellite.obj';
+  await Promise.all(frames.map(async (f, i) => {
     const satEcef_km = {
       x: f.satEcef_m.x / 1000,
       y: f.satEcef_m.y / 1000,
@@ -151,12 +232,23 @@ async function loadSatellites() {
       }
     }
     scene.add(helper);
-    const marker = new THREE.Mesh(
-      new THREE.SphereGeometry(100, 16, 16),
-      new THREE.MeshBasicMaterial({ color: 0xffaa00 })
-    );
-    marker.position.set(satEcef_km.x, satEcef_km.y, satEcef_km.z);
-    scene.add(marker);
+    // Load and place satellite OBJ
+    objLoader.load(satObjUrl, (object) => {
+      // Set all child materials to white with simple shading
+      object.traverse(child => {
+        if ((child as THREE.Mesh).isMesh) {
+          (child as THREE.Mesh).material = new THREE.MeshStandardMaterial({ color: 0x99ccff });
+        }
+      });
+      object.position.set(satEcef_km.x, satEcef_km.y, satEcef_km.z);
+      // Orient +Z of model along camera ray (parameterize if needed)
+      const dir = new THREE.Vector3().copy(cam.position).normalize();
+      object.up.set(0, 1, 0);
+      object.lookAt(dir);
+      object.scale.set(400, 400, 400); // scale to 200 km in each dimension
+      scene.add(object);
+      console.log(`Loaded satellite model for ${f.sat} at (${satEcef_km.x}, ${satEcef_km.y}, ${satEcef_km.z})`);
+    });
     const tex = new THREE.Texture(f.image);
     tex.needsUpdate = true;
     satellites.push({
@@ -173,7 +265,7 @@ async function loadSatellites() {
     widget['container'].style.top = (20 + i * 148) + 'px';
     widget['container'].style.zIndex = (2000 + i).toString();
     satelliteImageWidgets.push(widget);
-  });
+  }));
 }
 
 
