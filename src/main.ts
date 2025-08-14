@@ -133,7 +133,7 @@ document.addEventListener('DOMContentLoaded', () => {
   const arcPoints = arcCurve.getPoints(60);
   const arc3DPoints = arcPoints.map(pt => new THREE.Vector3(pt.x, pt.y, axisLength/2 - 500));
   const spinArcGeom = new THREE.BufferGeometry().setFromPoints(arc3DPoints);
-  const spinArcMat = new THREE.LineBasicMaterial({ color: spinArrowColor, linewidth: 6 });
+  const spinArcMat = new THREE.LineBasicMaterial({ color: spinArrowColor, linewidth: 2 });
   const spinArc = new THREE.Line(spinArcGeom, spinArcMat);
   scene.add(spinArc);
   // Arrowhead at end of arc
