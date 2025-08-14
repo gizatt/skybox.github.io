@@ -8,7 +8,7 @@ export const projectorVertexShader = `
 `;
 
 export const projectorFragmentShader = `
-  precision mediump float;
+  precision highp float;
   #define MAX_PROJECTORS 4
   uniform int numProjectors;
   uniform sampler2D tex0;
@@ -44,7 +44,7 @@ export const projectorFragmentShader = `
       fade *= smoothstep(0.0, edge, uv.y);
       fade *= smoothstep(0.0, edge, 1.0 - uv.x);
       fade *= smoothstep(0.0, edge, 1.0 - uv.y);
-      vec4 projColor = texture2D(tex, uv);
+      vec4 projColor = texture(tex, uv);
       projColor.a *= fade * facing;
       return projColor;
     }
