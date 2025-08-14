@@ -3,6 +3,7 @@ import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls';
 import { fetchLatestGoesFrames, SatFrame } from './lib/goes';
 import { InsetImageWidget } from './InsetImageWidget';
 import { projectorVertexShader, projectorFragmentShader } from './projectorMaterial';
+import {hashStringToColor} from "./lib/colorUtil"
 
 let SCREEN_WIDTH: number;
 let SCREEN_HEIGHT: number;
@@ -24,10 +25,7 @@ type SatelliteProjector = {
 let satellites: SatelliteProjector[] = [];
 let satelliteImageWidgets: InsetImageWidget[] = [];
 let frustumAlpha = 0.5;
-let cameraRig: THREE.Group;
 let cameraOrbiter: THREE.PerspectiveCamera;
-let cameraOrbiterHelper: THREE.CameraHelper;
-let activeCamera: THREE.Camera;
 let activeHelper: THREE.CameraHelper;
 
 import { enableRealTleFetch } from './lib/goes';
@@ -175,38 +173,6 @@ async function loadSatellites() {
   });
 }
 
-function hashStringToColor(str: string): {r:number,g:number,b:number,hex:number} {
-  let hash = 5381;
-  for (let i = 0; i < str.length; i++) {
-    hash = ((hash << 5) + hash) + str.charCodeAt(i)*1234;
-  }
-  const hue = Math.abs(hash) % 360;
-  const {r, g, b} = hslToRgb(hue / 360., 0.5, 0.8);
-  const hex = ((Math.round(r * 255) << 16) | (Math.round(g * 255) << 8) | Math.round(b * 255));
-  return { r, g, b, hex };
-}
-
-function hslToRgb(h: number, s: number, l: number) {
-  let r: number, g: number, b: number;
-  if (s === 0) {
-    r = g = b = l;
-  } else {
-    const hue2rgb = (p: number, q: number, t: number) => {
-      if (t < 0) t += 1;
-      if (t > 1) t -= 1;
-      if (t < 1/6) return p + (q - p) * 6 * t;
-      if (t < 1/2) return q;
-      if (t < 2/3) return p + (q - p) * (2/3 - t) * 6;
-      return p;
-    };
-    const q = l < 0.5 ? l * (1 + s) : l + s - l * s;
-    const p = 2 * l - q;
-    r = hue2rgb(p, q, h + 1/3);
-    g = hue2rgb(p, q, h);
-    b = hue2rgb(p, q, h - 1/3);
-  }
-  return { r, g, b };
-}
 
   // Frustum alpha slider logic
   const slider = document.getElementById('frustumAlphaSlider') as HTMLInputElement;
