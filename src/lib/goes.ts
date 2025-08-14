@@ -129,9 +129,10 @@ async function fetchGoesTLEsBySatId() {
     };
   }
   // cached + conditional GET via injected fetch
+   // Conditional requests like the ones we send can't be validated, so just self-limit to once per 6 hours.
   const txt = await fetchTextCached(CELESTRAK_GOES_TLE_URL, _fetchImpl, {
     ttlMs: 6 * 60 * 60 * 1000,  // 6 hours
-    revalidate: true,
+    revalidate: false,
   });
 
   const lines = txt.split(/\r?\n/).map(s => s.trim()).filter(Boolean);

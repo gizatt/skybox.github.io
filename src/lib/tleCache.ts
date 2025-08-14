@@ -28,13 +28,24 @@ export async function fetchTextCached(
   const isFresh = cached && (now - cached.fetchedAt) < cached.ttlMs;
 
   // If fresh and caller doesn't want to revalidate, use it with zero network.
-  if (isFresh && !revalidate) return cached!.body;
+  if (isFresh && !revalidate) {
+    console.log(`[tleCache] Cache hit for URL: ${url} (fresh, no network request)`);
+    return cached!.body;
+  }
+
+  if (cached) {
+    console.log(`[tleCache] Cache entry found for URL: ${url}`);
+    console.log(`[tleCache] ETag: ${cached.etag}, Last-Modified: ${cached.lastModified}, Fresh: ${isFresh}, Revalidate: ${revalidate}`);
+  } else {
+    console.log(`[tleCache] No cache entry for URL: ${url}`);
+  }
 
   // Build conditional headers if we have validators.
   const headers: Record<string, string> = {};
   if (cached?.etag) headers["If-None-Match"] = cached.etag!;
   if (cached?.lastModified) headers["If-Modified-Since"] = cached.lastModified!;
 
+  console.log(`[tleCache] Cache miss or revalidation required for URL: ${url} (network request)`);
   const res = await fetchFn(url, {
     method: "GET",
     headers,
@@ -43,6 +54,8 @@ export async function fetchTextCached(
   });
 
   if (res.status === 304 && cached) {
+    console.log(`[tleCache] Conditional network request for URL: ${url} (304 Not Modified, cache used)`);
+    console.log(`[tleCache] Response headers: ETag: ${res.headers.get("etag")}, Last-Modified: ${res.headers.get("last-modified")}`);
     // Not modified → bump freshness and keep body
     const updated: CachedText = {
       ...cached,
@@ -57,11 +70,16 @@ export async function fetchTextCached(
 
   if (!res.ok) {
     // Be resilient: if we have anything cached, serve it stale
-    if (cached) return cached.body;
+    if (cached) {
+      console.warn(`[tleCache] Network error for URL: ${url} (serving stale cache)`);
+      return cached.body;
+    }
     throw new Error(`HTTP ${res.status} fetching ${url}`);
   }
 
   const body = await res.text();
+  console.log(`[tleCache] Full network fetch for URL: ${url} (new data cached)`);
+  console.log(`[tleCache] Response headers: ETag: ${res.headers.get("etag")}, Last-Modified: ${res.headers.get("last-modified")}`);
   const record: CachedText = {
     url,
     body,
