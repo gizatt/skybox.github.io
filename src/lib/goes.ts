@@ -35,7 +35,7 @@ export interface SatFrame {
 }
 
 // Exported constants for tests
-export const FULL_DISK_FOV_DEG = 17.76 as const;
+export const FULL_DISK_FOV_DEG = 17.33 as const; // hand fine-tuned
 export const GOES_CDN_BASE = "https://cdn.star.nesdis.noaa.gov";
 export const IMAGE_CANDIDATES: Record<SatId, string[]> = {
   G19: [
@@ -87,6 +87,13 @@ function buildFrame(
     tleTimestamp: tle.line1.slice(18, 32) // TLE epoch (YYDDD.DDDDDDDD)
   });
   const ecef = propagateToEcefMeters(tle, img.timestamp);
+  // Compute expected FOV based on satellite altitude and earth radius
+  const earthRadius_km = 6371;
+  const satDist_km = Math.sqrt(ecef.x * ecef.x + ecef.y * ecef.y + ecef.z * ecef.z) / 1000;
+  // FOV = 2 * arcsin(R_earth / (R_earth + h)), but for a perfect fit, it's 2*arcsin(R_earth / satDist)
+  const expectedFovRad = 2 * Math.asin(earthRadius_km / satDist_km);
+  const expectedFovDeg = expectedFovRad * 180 / Math.PI;
+  console.log(`[${sat}] Expected full-disk FOV (earth fits image): ${expectedFovDeg.toFixed(4)} deg | Hardcoded: ${FULL_DISK_FOV_DEG} deg | (User slider may further adjust)`);
   const w = img.image.naturalWidth || img.image.width;
   const h = img.image.naturalHeight || img.image.height;
   return {

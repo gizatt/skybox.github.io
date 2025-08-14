@@ -20,10 +20,17 @@
         <strong>Skybox</strong>
         <button id="loadTleBtn" class="btn" style="font-size:13px; padding:4px 10px;">Load Real TLEs</button>
       </div>
-      <div class="row" style="margin-bottom:6px;gap:12px;align-items:center;">
-        <label style="font-size:13px;">Frustum Alpha:</label>
-        <input id="frustumAlphaSlider" type="range" min="0" max="1" step="0.01" value="0.5" style="vertical-align:middle;width:90px;">
-        <span id="frustumAlphaValue" style="font-size:13px;">0.50</span>
+      <div style="display: flex; flex-direction: column; gap: 12px; margin-bottom: 6px; align-items: flex-start;">
+        <div style="display: flex; align-items: center; gap: 10px; width: 100%;">
+          <label style="font-size:13px; min-width: 90px;">Frustum Alpha:</label>
+          <input id="frustumAlphaSlider" type="range" min="0" max="1" step="0.01" value="0.5" style="vertical-align:middle;width:260px;">
+          <span id="frustumAlphaValue" style="font-size:13px;">0.50</span>
+        </div>
+        <div style="display: flex; align-items: center; gap: 10px; width: 100%;">
+          <label style="font-size:13px; min-width: 90px;">FOV Fine Adj:</label>
+          <input id="fovFineSlider" type="range" min="-1" max="1" step="0.01" value="0" style="vertical-align:middle;width:260px;">
+          <span id="fovFineValue" style="font-size:13px;">0.00°</span>
+        </div>
       </div>
       <div style="margin-top:6px;font-size:12px;opacity:0.9;">
         Drag to orbit · Scroll to zoom · Right-drag to pan

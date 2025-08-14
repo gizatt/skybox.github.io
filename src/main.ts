@@ -25,6 +25,7 @@ type SatelliteProjector = {
 let satellites: SatelliteProjector[] = [];
 let satelliteImageWidgets: InsetImageWidget[] = [];
 let frustumAlpha = 0.5;
+let fovFineAdj = 0.0; // degrees, -1 to +1
 let cameraOrbiter: THREE.PerspectiveCamera;
 let activeHelper: THREE.CameraHelper;
 
@@ -126,7 +127,9 @@ async function loadSatellites() {
       y: f.satEcef_m.y / 1000,
       z: f.satEcef_m.z / 1000,
     };
-    const cam = new THREE.PerspectiveCamera(f.fovDeg, f.aspect, 35000, 50000);
+    // Apply FOV fine adjustment
+    const fov = f.fovDeg + fovFineAdj;
+    const cam = new THREE.PerspectiveCamera(fov, f.aspect, 35000, 50000);
     cam.up.set(0, 0, 1);
     cam.position.set(satEcef_km.x, satEcef_km.y, satEcef_km.z);
     cam.lookAt(0, 0, 0);
@@ -177,9 +180,14 @@ async function loadSatellites() {
   // Frustum alpha slider logic
   const slider = document.getElementById('frustumAlphaSlider') as HTMLInputElement;
   const valueSpan = document.getElementById('frustumAlphaValue') as HTMLSpanElement;
-  if (slider && valueSpan) {
+  const fovSlider = document.getElementById('fovFineSlider') as HTMLInputElement;
+  const fovValue = document.getElementById('fovFineValue') as HTMLSpanElement;
+  if (slider && valueSpan && fovSlider && fovValue) {
     slider.value = frustumAlpha.toString();
     valueSpan.textContent = frustumAlpha.toFixed(2);
+  fovSlider.value = fovFineAdj.toString();
+  const baseFov = satellites[0]?.frame?.fovDeg ?? 17.33;
+  fovValue.textContent = (baseFov + fovFineAdj).toFixed(2) + '°';
     slider.addEventListener('input', () => {
       frustumAlpha = parseFloat(slider.value);
       valueSpan.textContent = frustumAlpha.toFixed(2);
@@ -195,6 +203,21 @@ async function loadSatellites() {
             (sat.helper.material as THREE.Material).opacity = frustumAlpha;
             (sat.helper.material as THREE.Material).transparent = frustumAlpha < 1.0;
           }
+        }
+      });
+    });
+    fovSlider.addEventListener('input', () => {
+      fovFineAdj = parseFloat(fovSlider.value);
+      // Use first satellite's base FOV for display (should be same for all)
+      const baseFov = satellites[0]?.frame?.fovDeg ?? 17.33;
+      fovValue.textContent = (baseFov + fovFineAdj).toFixed(2) + '°';
+      // Update FOV of all satellite cameras and their helpers
+      satellites.forEach(sat => {
+        const newFov = sat.frame.fovDeg + fovFineAdj;
+        sat.camera.fov = newFov;
+        sat.camera.updateProjectionMatrix();
+        if (sat.helper) {
+          sat.helper.update();
         }
       });
     });
