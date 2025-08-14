@@ -58,12 +58,22 @@ export async function fetchLatestGoesFrames(): Promise<SatFrame[]> {
     resolveLatestImage("G19"),
     resolveLatestImage("G18"),
   ]);
-  
+
   const tleBySat = await fetchGoesTLEsBySatId();
 
   const out: SatFrame[] = [];
-  if (g19 && tleBySat.G19) out.push(buildFrame("G19", g19, tleBySat.G19));
-  if (g18 && tleBySat.G18) out.push(buildFrame("G18", g18, tleBySat.G18));
+  if (g19 && tleBySat.G19) {
+    out.push(buildFrame("G19", {
+      ...g19,
+      timestamp: g19.timestamp instanceof Date && !isNaN(g19.timestamp.getTime()) ? g19.timestamp : new Date(),
+    }, tleBySat.G19));
+  }
+  if (g18 && tleBySat.G18) {
+    out.push(buildFrame("G18", {
+      ...g18,
+      timestamp: g18.timestamp instanceof Date && !isNaN(g18.timestamp.getTime()) ? g18.timestamp : new Date(),
+    }, tleBySat.G18));
+  }
   return out;
 }
 
@@ -72,6 +82,10 @@ function buildFrame(
   img: { url: string; image: HTMLImageElement; timestamp: Date },
   tle: { line1: string; line2: string }
 ): SatFrame {
+  console.log("Building frame for", sat, "at", img.timestamp.toISOString(), {
+    tle,
+    tleTimestamp: tle.line1.slice(18, 32) // TLE epoch (YYDDD.DDDDDDDD)
+  });
   const ecef = propagateToEcefMeters(tle, img.timestamp);
   const w = img.image.naturalWidth || img.image.width;
   const h = img.image.naturalHeight || img.image.height;
@@ -90,24 +104,60 @@ function buildFrame(
 }
 
 // ---------------- Impl (with DI) ----------------
+
+// --- Generalized Satellite Image Provider Interface ---
+export interface RecentSatImageProvider {
+  getRecentImage(fetchImpl: FetchFn, loadImageImpl: ImageLoader): Promise<{ url: string; image: HTMLImageElement; timestamp: Date | null } | null>;
+}
+
+// --- GOES-N (GOES-18, GOES-19, etc) implementation ---
+export function makeGoesNImageProvider(satId: string): RecentSatImageProvider {
+  // e.g. satId = "GOES18" or "GOES19"
+  const dirUrl = `${GOES_CDN_BASE}/${satId}/ABI/FD/GEOCOLOR/`;
+  // Only match 1808x1808 images
+  const regex = new RegExp(`(\\d{11,})_${satId}-ABI-FD-GEOCOLOR-1808x1808\\.jpg`, 'g');
+  return {
+    async getRecentImage(fetchImpl, loadImageImpl) {
+      const res = await fetchImpl(dirUrl, { method: "GET", mode: "cors" as RequestMode });
+      if (res.ok) {
+        const html = await res.text();
+        const matches = Array.from(html.matchAll(regex));
+        if (matches.length > 0) {
+          matches.sort((a, b) => b[1].localeCompare(a[1]));
+          const latest = matches[0];
+          const filename = latest[0];
+          const url = dirUrl + filename;
+          const ts = parseGoesNFilenameTimestamp(latest[1]);
+          const img = await loadImageImpl(url);
+          return { url, image: img, timestamp: ts };
+        }
+      }
+      return null;
+    }
+  };
+}
+
+function parseGoesNFilenameTimestamp(stamp: string): Date | null {
+  // stamp: yyyydddhhmm (year, day-of-year, hour, minute)
+  if (!/^\d{11}$/.test(stamp)) return null;
+  const year = +stamp.slice(0, 4);
+  const doy = +stamp.slice(4, 7);
+  const hh = +stamp.slice(7, 9);
+  const mm = +stamp.slice(9, 11);
+  const { y, m, d } = dateFromDayOfYearUTC(year, doy);
+  return new Date(Date.UTC(y, m - 1, d, hh, mm, 0));
+}
+
+// --- Main resolver using providers ---
+const SAT_IMAGE_PROVIDERS: Record<SatId, RecentSatImageProvider> = {
+  G18: makeGoesNImageProvider("GOES18"),
+  G19: makeGoesNImageProvider("GOES19"),
+};
+
 async function resolveLatestImage(sat: SatId) {
-  for (const candidate of IMAGE_CANDIDATES[sat]) {
-    try {
-      // go through injected fetch, and let browser cache images
-      const res = await _fetchImpl(candidate, { method: "GET", mode: "cors" as RequestMode });
-      if (!res.ok) continue;
-
-      const finalUrl = res.url || candidate;
-      const ts = parseTimestampFromUrl(finalUrl)
-              ?? parseHttpDate(res.headers.get("last-modified"))
-              ?? new Date();
-
-      // go through injected image loader (tests can stub)
-      const img = await _loadImageImpl(finalUrl);
-      return { url: finalUrl, image: img, timestamp: ts };
-    } catch { /* try next */ }
-  }
-  return null;
+  const provider = SAT_IMAGE_PROVIDERS[sat];
+  if (!provider) return null;
+  return provider.getRecentImage(_fetchImpl, _loadImageImpl);
 }
 
 let USE_REAL_TLE = false;
@@ -119,12 +169,12 @@ async function fetchGoesTLEsBySatId() {
     // Reasonable stub TLEs for GOES-18 and GOES-19 (as of 2024)
     return {
       G18: {
-        line1: "1 49857U 22057A   24225.50000000  .00000000  00000-0  00000-0 0  9990",
-        line2: "2 49857   0.0170  0.0000 0001000  90.0000 270.0000  1.00270000    01"
+      line1: "1 51850U 22021A   25225.49697635  .00000098  00000+0  00000+0 0  9996",
+      line2: "2 51850   0.0070 282.4274 0000607 300.8675 140.7832  1.00271626  3507"
       },
       G19: {
-        line1: "1 56370U 23067A   24225.50000000  .00000000  00000-0  00000-0 0  9990",
-        line2: "2 56370   0.0170  0.0000 0001000 180.0000   0.0000  1.00270000    01"
+      line1: "1 60133U 24119A   25225.52405752 -.00000247  00000+0  00000+0 0  9998",
+      line2: "2 60133   0.0150  90.0040 0000708 157.4073 188.2598  1.00269356  3877"
       }
     };
   }
@@ -143,6 +193,7 @@ async function fetchGoesTLEsBySatId() {
     if (!satId || out[satId]) continue;
     out[satId] = { line1: lines[i+1], line2: lines[i+2] };
   }
+  console.log("Fetched Real TLEs:", out);
   return out;
 }
 
@@ -191,7 +242,7 @@ export function dateFromDayOfYearUTC(year: number, doy: number) {
 export function propagateToEcefMeters(tle: { line1: string; line2: string }, at: Date): Vec3 {
   const satrec = satellite.twoline2satrec(tle.line1, tle.line2);
   const { position } = satellite.propagate(satrec, at);
-  if (!position) throw new Error("SGP4 returned no position");
+  if (!position || typeof position !== 'object' || typeof position.x !== 'number') throw new Error("SGP4 returned no position");
   const gmst = satellite.gstime(at);
   const ecf_km = satellite.eciToEcf(position, gmst);
   return { x: ecf_km.x * 1000, y: ecf_km.y * 1000, z: ecf_km.z * 1000 };
